@@ -114,11 +114,11 @@ class MessageService:
         replies_count = self._message_repository.count_operator_replies(user_id)
         
         forward_text = (
-            f"📨 Новое сообщение от {user_name}\n"
+            f"📨 {user_name} (ID: {user_id})\n"
             f"🆔 User ID: {user_id}\n"
-            f"💬 Ответов оператора: {replies_count}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"{text}"
+            f"Вопрос пользователя:\n"
+            f"{text}\n"
+            f"💬 Ответов оператора: {replies_count}"
         )
         
         try:
@@ -166,17 +166,17 @@ class MessageService:
         Returns:
             True если успешно отправлено, False при ошибке
         """
-        full_reply = f"💬 Ответ от поддержки ({operator_name}):\n\n{text}"
+        full_reply = f"💬 {text}"
         
         try:
             self._api_client.send_message_to_user(user_id, full_reply)
             
-            # Уведомляем чат поддержки об успешной отправке
-            notification = f"✅ {operator_name} ответил пользователю {user_name}"
-            self._api_client.send_message_to_chat(
-                self._settings.support_chat_id,
-                notification
-            )
+            # # Уведомляем чат поддержки об успешной отправке
+            # notification = f"✅ {operator_name} ответил пользователю {user_name}"
+            # self._api_client.send_message_to_chat(
+            #     self._settings.support_chat_id,
+            #     notification
+            # )
             
             return True
             
