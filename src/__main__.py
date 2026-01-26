@@ -14,6 +14,7 @@ from src.repositories.message_repository import SQLiteMessageRepository
 from src.clients.max_api_client import MaxApiClient
 from src.services.user_service import UserService
 from src.services.message_service import MessageService
+from src.services.export_service import ExportService
 from src.services.bot_service import BotService
 from src.handlers.update_handler import UpdateHandler
 
@@ -54,10 +55,17 @@ def main() -> None:
             settings=settings
         )
         
+        # Создаем сервис экспорта
+        export_service = ExportService(
+            user_repository=user_repository,
+            message_repository=message_repository
+        )
+        
         # Создаем обработчик событий
         update_handler = UpdateHandler(
             user_service=user_service,
             message_service=message_service,
+            export_service=export_service,
             settings=settings
         )
         

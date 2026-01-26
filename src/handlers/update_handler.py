@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 from src.services.user_service import UserService
 from src.services.message_service import MessageService
+from src.services.export_service import ExportService
 from src.config.settings import Settings
 from src.models.update import UpdateType, LinkType
 
@@ -21,6 +22,7 @@ class UpdateHandler:
         self,
         user_service: UserService,
         message_service: MessageService,
+        export_service: ExportService,
         settings: Settings
     ) -> None:
         """Инициализация обработчика.
@@ -28,10 +30,12 @@ class UpdateHandler:
         Args:
             user_service: Сервис для работы с пользователями
             message_service: Сервис для работы с сообщениями
+            export_service: Сервис для экспорта данных
             settings: Конфигурация приложения
         """
         self._user_service = user_service
         self._message_service = message_service
+        self._export_service = export_service
         self._settings = settings
     
     def handle_update(self, update: dict[str, Any]) -> None:
@@ -71,7 +75,12 @@ class UpdateHandler:
         is_from_support_chat = (chat_id == self._settings.support_chat_id)
         is_private_to_bot = (recipient_user_id is not None)
         
-        # СЦЕНАРИЙ 1: Ответ оператора через Reply в чате поддержки
+        # СЦЕНАРИЙ 1: Команда /export из чата поддержки
+        if is_from_support_chat and not is_bot and text.strip().lower() == "/export":
+            self._handle_export_command(name)
+            return
+        
+        # СЦЕНАРИЙ 2: Ответ оператора через Reply в чате поддержки
         if is_from_support_chat and not is_bot and link:
             self._handle_operator_reply(link, name, text)
             return
@@ -80,12 +89,12 @@ class UpdateHandler:
         if is_from_support_chat:
             return
         
-        # СЦЕНАРИЙ 2: Команда /start от клиента
+        # СЦЕНАРИЙ 3: Команда /start от клиента
         if is_private_to_bot and text.strip().lower() in ["/start", "/hello"]:
             self._handle_start_command(user_id, name)
             return
         
-        # СЦЕНАРИЙ 3: Обычное сообщение от клиента
+        # СЦЕНАРИЙ 4: Обычное сообщение от клиента
         if is_private_to_bot and not is_bot:
             self._handle_user_message(user_id, name, text)
             return
@@ -182,3 +191,40 @@ class UpdateHandler:
             print(f"   ✅ Отправлено!")
         else:
             print(f"   ❌ Ошибка отправки")
+    
+    def _handle_export_command(self, operator_name: str) -> None:
+        """Обработать команду /export из чата поддержки."""
+        print(f"\n📊 Команда /export от {operator_name}")
+        
+        try:
+            # Генерируем Excel файл
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"users_export_{timestamp}.xlsx"
+            
+            file_path = self._export_service.export_all_users_to_excel(filename)
+            
+            print(f"   ✅ Excel файл создан: {file_path}")
+            
+            # Отправляем уведомление в чат
+            notification = (
+                f"📊 Экспорт данных выполнен\n"
+                f"👤 Инициатор: {operator_name}\n"
+                f"📁 Файл: {filename}\n"
+                f"💾 Путь: {file_path}\n\n"
+                f"Файл сохранён на сервере."
+            )
+            
+            self._user_service._api_client.send_message_to_chat(
+                self._settings.support_chat_id,
+                notification
+            )
+            
+        except Exception as e:
+            error_message = f"❌ Ошибка при экспорте данных: {e}"
+            print(f"   {error_message}")
+            
+            self._user_service._api_client.send_message_to_chat(
+                self._settings.support_chat_id,
+                error_message
+            )
