@@ -52,7 +52,7 @@ class UpdateHandler:
             self._handle_bot_started(update)
         else:
             if self._settings.debug:
-                print(f"⚠️  Неизвестный тип события: {update_type}")
+                print(f"⚠️ Неизвестный тип события: {update_type}")
     
     def _handle_message_created(self, update: dict[str, Any]) -> None:
         """Обработать событие создания сообщения."""
@@ -162,7 +162,7 @@ class UpdateHandler:
         
         if mapping is None:
             if self._settings.debug:
-                print(f"⚠️  Маппинг не найден для message_id: {replied_message_id}")
+                print(f"⚠️ Маппинг не найден для message_id: {replied_message_id}")
             return
         
         target_user_id = mapping.user_id
@@ -188,9 +188,9 @@ class UpdateHandler:
         )
         
         if success:
-            print(f"   ✅ Отправлено!")
+            print(f"  ✅ Отправлено!")
         else:
-            print(f"   ❌ Ошибка отправки")
+            print(f"  ❌ Ошибка отправки")
     
     def _handle_export_command(self, operator_name: str) -> None:
         """Обработать команду /export из чата поддержки."""
@@ -201,30 +201,43 @@ class UpdateHandler:
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"users_export_{timestamp}.xlsx"
-            
             file_path = self._export_service.export_all_users_to_excel(filename)
             
             print(f"   ✅ Excel файл создан: {file_path}")
             
-            # Отправляем уведомление в чат
+            # Загружаем файл на сервер Max.ru
+            print(f"   ⬆️  Загрузка файла на сервер...")
+            api_client = self._user_service._api_client
+            file_token = api_client.upload_file(file_path)
+            
+            print(f"   ✅ Файл загружен, token: {file_token[:20]}...")
+            
+            # Отправляем файл в чат с описанием
             notification = (
                 f"📊 Экспорт данных выполнен\n"
                 f"👤 Инициатор: {operator_name}\n"
                 f"📁 Файл: {filename}\n"
-                f"💾 Путь: {file_path}\n\n"
-                f"Файл сохранён на сервере."
+                f"📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
             )
             
-            self._user_service._api_client.send_message_to_chat(
+            api_client.send_file_to_chat(
                 self._settings.support_chat_id,
-                notification
+                file_token,
+                notification,
+                filename
             )
+            
+            print(f"   ✅ Файл отправлен в чат поддержки!")
             
         except Exception as e:
             error_message = f"❌ Ошибка при экспорте данных: {e}"
             print(f"   {error_message}")
             
-            self._user_service._api_client.send_message_to_chat(
-                self._settings.support_chat_id,
-                error_message
-            )
+            # Отправляем сообщение об ошибке в чат
+            try:
+                self._user_service._api_client.send_message_to_chat(
+                    self._settings.support_chat_id,
+                    error_message
+                )
+            except Exception:
+                pass  # Игнорируем ошибки при отправке сообщения об ошибке

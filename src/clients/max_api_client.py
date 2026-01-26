@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Any
 import requests
 from requests.exceptions import RequestException, Timeout
+from pathlib import Path
 
 from src.config.settings import Settings
 
@@ -112,7 +113,7 @@ class MaxApiClient(IMaxApiClient):
                 )
             
             return response.json()
-            
+        
         except Timeout as e:
             raise MaxApiTimeoutError(f"Request timeout: {e}") from e
         except RequestException as e:
@@ -125,6 +126,121 @@ class MaxApiClient(IMaxApiClient):
     def send_message_to_chat(self, chat_id: int, text: str) -> dict[str, Any]:
         """Отправить сообщение в групповой чат."""
         return self._send_message(params={"chat_id": chat_id}, text=text)
+    
+    def upload_file(self, file_path: str) -> str:
+        """Загрузить файл на сервер Max.ru.
+        
+        Args:
+            file_path: Путь к файлу для загрузки
+            
+        Returns:
+            Token загруженного файла для использования в attachments
+            
+        Raises:
+            MaxApiHttpError: При ошибке загрузки
+            FileNotFoundError: Если файл не найден
+        """
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Файл не найден: {file_path}")
+        
+        try:
+            # Шаг 1: Получаем URL для загрузки
+            response = self._session.post(
+                f"{self._settings.base_url}/uploads",
+                params={"type": "file"},
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                raise MaxApiHttpError(
+                    f"Failed to get upload URL: {response.text}",
+                    response.status_code
+                )
+            
+            upload_data = response.json()
+            upload_url = upload_data.get("url")
+            file_token = upload_data.get("token")
+            
+            if not upload_url or not file_token:
+                raise MaxApiError("Invalid upload response: missing url or token")
+            
+            # Шаг 2: Загружаем файл на полученный URL
+            with open(file_path, "rb") as file:
+                files = {"data": (path.name, file, "application/octet-stream")}
+                
+                upload_response = requests.post(
+                    upload_url,
+                    files=files,
+                    timeout=60  # Больше таймаут для загрузки файла
+                )
+                
+                if upload_response.status_code not in [200, 201]:
+                    raise MaxApiHttpError(
+                        f"Failed to upload file: {upload_response.text}",
+                        upload_response.status_code
+                    )
+            
+            return file_token
+        
+        except Timeout as e:
+            raise MaxApiTimeoutError(f"File upload timeout: {e}") from e
+        except RequestException as e:
+            raise MaxApiError(f"File upload failed: {e}") from e
+    
+    def send_file_to_chat(
+        self, 
+        chat_id: int, 
+        file_token: str, 
+        text: str,
+        filename: str
+    ) -> dict[str, Any]:
+        """Отправить файл в групповой чат.
+        
+        Args:
+            chat_id: ID чата
+            file_token: Token загруженного файла (из upload_file)
+            text: Текст сообщения (описание файла)
+            filename: Имя файла для отображения
+            
+        Returns:
+            Response от API с данными отправленного сообщения
+            
+        Raises:
+            MaxApiHttpError: При ошибке отправки
+        """
+        try:
+            payload = {
+                "text": text,
+                "attachments": [
+                    {
+                        "type": "file",
+                        "payload": {
+                            "token": file_token
+                        }
+                    }
+                ]
+            }
+            
+            response = self._session.post(
+                f"{self._settings.base_url}/messages",
+                params={"chat_id": chat_id},
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code not in [200, 201]:
+                raise MaxApiHttpError(
+                    f"Failed to send file: {response.text}",
+                    response.status_code
+                )
+            
+            return response.json()
+        
+        except Timeout as e:
+            raise MaxApiTimeoutError(f"File send timeout: {e}") from e
+        except RequestException as e:
+            raise MaxApiError(f"File send failed: {e}") from e
     
     def _send_message(self, params: dict[str, int], text: str) -> dict[str, Any]:
         """Внутренний метод для отправки сообщений.
@@ -154,7 +270,7 @@ class MaxApiClient(IMaxApiClient):
                 )
             
             return response.json()
-            
+        
         except Timeout as e:
             raise MaxApiTimeoutError(f"Message send timeout: {e}") from e
         except RequestException as e:
