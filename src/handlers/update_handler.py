@@ -199,6 +199,8 @@ class UpdateHandler:
         try:
             # Генерируем Excel файл
             from datetime import datetime
+            import time
+            
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"users_export_{timestamp}.xlsx"
             file_path = self._export_service.export_all_users_to_excel(filename)
@@ -211,6 +213,10 @@ class UpdateHandler:
             file_token = api_client.upload_file(file_path)
             
             print(f"   ✅ Файл загружен, token: {file_token[:20]}...")
+            
+            # ВАЖНО: Ждем пока сервер обработает файл
+            print(f"   ⏳ Ожидание обработки файла на сервере (3 сек)...")
+            time.sleep(3)
             
             # Отправляем файл в чат с описанием
             notification = (

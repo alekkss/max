@@ -159,11 +159,12 @@ class MaxApiClient(IMaxApiClient):
                 )
             
             upload_data = response.json()
-            upload_url = upload_data.get("url")
-            file_token = upload_data.get("token")
+            print(f"   🔍 DEBUG: Ответ от /uploads: {upload_data}")
             
-            if not upload_url or not file_token:
-                raise MaxApiError("Invalid upload response: missing url or token")
+            upload_url = upload_data.get("url")
+            
+            if not upload_url:
+                raise MaxApiError(f"Invalid upload response: missing url. Response: {upload_data}")
             
             # Шаг 2: Загружаем файл на полученный URL
             with open(file_path, "rb") as file:
@@ -172,7 +173,7 @@ class MaxApiClient(IMaxApiClient):
                 upload_response = requests.post(
                     upload_url,
                     files=files,
-                    timeout=60  # Больше таймаут для загрузки файла
+                    timeout=60
                 )
                 
                 if upload_response.status_code not in [200, 201]:
@@ -180,8 +181,26 @@ class MaxApiClient(IMaxApiClient):
                         f"Failed to upload file: {upload_response.text}",
                         upload_response.status_code
                     )
+                
+                # DEBUG: Проверяем ответ после загрузки
+                try:
+                    upload_result = upload_response.json()
+                    print(f"   🔍 DEBUG: Ответ после загрузки файла: {upload_result}")
+                    
+                    # Проверяем, есть ли token в ответе после загрузки
+                    file_token = upload_result.get("token")
+                    if file_token:
+                        return file_token
+                except Exception:
+                    print(f"   🔍 DEBUG: Ответ не JSON, используем id из первого запроса")
             
-            return file_token
+            # Если token не пришел после загрузки, используем id из первого запроса
+            file_id = upload_data.get("id")
+            if file_id:
+                # Возможно id и есть token, преобразуем в строку
+                return str(file_id)
+            
+            raise MaxApiError(f"Cannot extract token from upload response. Step1: {upload_data}, Step2: status {upload_response.status_code}")
         
         except Timeout as e:
             raise MaxApiTimeoutError(f"File upload timeout: {e}") from e
