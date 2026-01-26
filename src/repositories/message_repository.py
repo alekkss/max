@@ -43,6 +43,18 @@ class IMessageRepository(ABC):
         pass
     
     @abstractmethod
+    def count_operator_replies(self, user_id: int) -> int:
+        """Подсчитать количество ответов оператора для пользователя.
+        
+        Args:
+            user_id: ID пользователя
+            
+        Returns:
+            Количество сообщений от операторов (direction = TO_USER)
+        """
+        pass
+    
+    @abstractmethod
     def save_mapping(self, mapping_data: MessageMappingCreate) -> MessageMapping:
         """Сохранить маппинг между message_id в чате и user_id.
         
@@ -120,6 +132,18 @@ class SQLiteMessageRepository(IMessageRepository):
             
             rows = cursor.fetchall()
             return [self._row_to_message(row) for row in rows]
+    
+    def count_operator_replies(self, user_id: int) -> int:
+        """Подсчитать количество ответов оператора для пользователя."""
+        with self._db.cursor() as cursor:
+            cursor.execute('''
+                SELECT COUNT(*) as count
+                FROM messages
+                WHERE user_id = ? AND direction = ?
+            ''', (user_id, MessageDirection.TO_USER.value))
+            
+            row = cursor.fetchone()
+            return row["count"] if row else 0
     
     def save_mapping(self, mapping_data: MessageMappingCreate) -> MessageMapping:
         """Сохранить маппинг между message_id в чате и user_id."""
