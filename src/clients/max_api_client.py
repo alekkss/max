@@ -37,10 +37,10 @@ class IMaxApiClient(ABC):
         Args:
             marker: Маркер для получения новых обновлений
             timeout: Таймаут long polling в секундах
-            
+        
         Returns:
             Словарь с ключами 'updates' и 'marker'
-            
+        
         Raises:
             MaxApiTimeoutError: При таймауте запроса
             MaxApiHttpError: При HTTP ошибке
@@ -48,32 +48,44 @@ class IMaxApiClient(ABC):
         pass
     
     @abstractmethod
-    def send_message_to_user(self, user_id: int, text: str) -> dict[str, Any]:
+    def send_message_to_user(
+        self, 
+        user_id: int, 
+        text: str, 
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
         """Отправить сообщение пользователю.
         
         Args:
             user_id: ID пользователя
             text: Текст сообщения
-            
+            format: Формат текста ('markdown' или 'html'), optional
+        
         Returns:
             Response от API с данными отправленного сообщения
-            
+        
         Raises:
             MaxApiHttpError: При ошибке отправки
         """
         pass
     
     @abstractmethod
-    def send_message_to_chat(self, chat_id: int, text: str) -> dict[str, Any]:
+    def send_message_to_chat(
+        self, 
+        chat_id: int, 
+        text: str, 
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
         """Отправить сообщение в групповой чат.
         
         Args:
             chat_id: ID чата
             text: Текст сообщения
-            
+            format: Формат текста ('markdown' или 'html'), optional
+        
         Returns:
             Response от API с данными отправленного сообщения
-            
+        
         Raises:
             MaxApiHttpError: При ошибке отправки
         """
@@ -119,23 +131,41 @@ class MaxApiClient(IMaxApiClient):
         except RequestException as e:
             raise MaxApiError(f"Request failed: {e}") from e
     
-    def send_message_to_user(self, user_id: int, text: str) -> dict[str, Any]:
+    def send_message_to_user(
+        self, 
+        user_id: int, 
+        text: str, 
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
         """Отправить сообщение пользователю."""
-        return self._send_message(params={"user_id": user_id}, text=text)
+        return self._send_message(
+            params={"user_id": user_id}, 
+            text=text, 
+            format=format
+        )
     
-    def send_message_to_chat(self, chat_id: int, text: str) -> dict[str, Any]:
+    def send_message_to_chat(
+        self, 
+        chat_id: int, 
+        text: str, 
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
         """Отправить сообщение в групповой чат."""
-        return self._send_message(params={"chat_id": chat_id}, text=text)
+        return self._send_message(
+            params={"chat_id": chat_id}, 
+            text=text, 
+            format=format
+        )
     
     def upload_file(self, file_path: str) -> str:
         """Загрузить файл на сервер Max.ru.
         
         Args:
             file_path: Путь к файлу для загрузки
-            
+        
         Returns:
             Token загруженного файла для использования в attachments
-            
+        
         Raises:
             MaxApiHttpError: При ошибке загрузки
             FileNotFoundError: Если файл не найден
@@ -159,40 +189,38 @@ class MaxApiClient(IMaxApiClient):
                 )
             
             upload_data = response.json()
-            print(f"   🔍 DEBUG: Ответ от /uploads: {upload_data}")
+            print(f"🔍 DEBUG: Ответ от /uploads: {upload_data}")
             
             upload_url = upload_data.get("url")
-            
             if not upload_url:
                 raise MaxApiError(f"Invalid upload response: missing url. Response: {upload_data}")
             
             # Шаг 2: Загружаем файл на полученный URL
             with open(file_path, "rb") as file:
                 files = {"data": (path.name, file, "application/octet-stream")}
-                
                 upload_response = requests.post(
                     upload_url,
                     files=files,
                     timeout=60
                 )
+            
+            if upload_response.status_code not in [200, 201]:
+                raise MaxApiHttpError(
+                    f"Failed to upload file: {upload_response.text}",
+                    upload_response.status_code
+                )
+            
+            # DEBUG: Проверяем ответ после загрузки
+            try:
+                upload_result = upload_response.json()
+                print(f"🔍 DEBUG: Ответ после загрузки файла: {upload_result}")
                 
-                if upload_response.status_code not in [200, 201]:
-                    raise MaxApiHttpError(
-                        f"Failed to upload file: {upload_response.text}",
-                        upload_response.status_code
-                    )
-                
-                # DEBUG: Проверяем ответ после загрузки
-                try:
-                    upload_result = upload_response.json()
-                    print(f"   🔍 DEBUG: Ответ после загрузки файла: {upload_result}")
-                    
-                    # Проверяем, есть ли token в ответе после загрузки
-                    file_token = upload_result.get("token")
-                    if file_token:
-                        return file_token
-                except Exception:
-                    print(f"   🔍 DEBUG: Ответ не JSON, используем id из первого запроса")
+                # Проверяем, есть ли token в ответе после загрузки
+                file_token = upload_result.get("token")
+                if file_token:
+                    return file_token
+            except Exception:
+                print(f"🔍 DEBUG: Ответ не JSON, используем id из первого запроса")
             
             # Если token не пришел после загрузки, используем id из первого запроса
             file_id = upload_data.get("id")
@@ -208,9 +236,9 @@ class MaxApiClient(IMaxApiClient):
             raise MaxApiError(f"File upload failed: {e}") from e
     
     def send_file_to_chat(
-        self, 
-        chat_id: int, 
-        file_token: str, 
+        self,
+        chat_id: int,
+        file_token: str,
         text: str,
         filename: str
     ) -> dict[str, Any]:
@@ -221,10 +249,10 @@ class MaxApiClient(IMaxApiClient):
             file_token: Token загруженного файла (из upload_file)
             text: Текст сообщения (описание файла)
             filename: Имя файла для отображения
-            
+        
         Returns:
             Response от API с данными отправленного сообщения
-            
+        
         Raises:
             MaxApiHttpError: При ошибке отправки
         """
@@ -261,24 +289,36 @@ class MaxApiClient(IMaxApiClient):
         except RequestException as e:
             raise MaxApiError(f"File send failed: {e}") from e
     
-    def _send_message(self, params: dict[str, int], text: str) -> dict[str, Any]:
+    def _send_message(
+        self, 
+        params: dict[str, int], 
+        text: str,
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
         """Внутренний метод для отправки сообщений.
         
         Args:
             params: Параметры запроса (user_id или chat_id)
             text: Текст сообщения
-            
+            format: Формат текста ('markdown' или 'html'), optional
+        
         Returns:
             Response от API
-            
+        
         Raises:
             MaxApiHttpError: При ошибке отправки
         """
         try:
+            payload = {"text": text}
+            
+            # Добавляем формат, если указан
+            if format in ["markdown", "html"]:
+                payload["format"] = format
+            
             response = self._session.post(
                 f"{self._settings.base_url}/messages",
                 params=params,
-                json={"text": text},
+                json=payload,
                 timeout=10
             )
             

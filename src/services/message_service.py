@@ -106,7 +106,7 @@ class MessageService:
             user_id: ID пользователя
             user_name: Имя пользователя
             text: Текст сообщения
-            
+        
         Returns:
             Message ID отправленного сообщения в чате или None при ошибке
         """
@@ -115,7 +115,7 @@ class MessageService:
         
         forward_text = (
             f"📨 {user_name} (ID: {user_id})\n"
-            f"🆔 User ID: {user_id}\n"
+            f"🆔 [{user_name}](max://user/{user_id})\n"  # ✅ ИЗМЕНЕНА ТОЛЬКО ЭТА СТРОКА
             f"Вопрос пользователя:\n"
             f"{text}\n"
             f"💬 Ответов оператора: {replies_count}"
@@ -124,7 +124,8 @@ class MessageService:
         try:
             response = self._api_client.send_message_to_chat(
                 self._settings.support_chat_id,
-                forward_text
+                forward_text,
+                format="markdown"  # ✅ Добавляем формат markdown
             )
             
             # Извлекаем message_id из ответа
@@ -142,7 +143,7 @@ class MessageService:
                 self._message_repository.save_mapping(mapping_data)
             
             return message_id
-            
+        
         except MaxApiHttpError as e:
             # Логируем ошибку, но не прерываем работу бота
             print(f"❌ Ошибка пересылки в чат поддержки: {e}")
