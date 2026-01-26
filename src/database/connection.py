@@ -1,4 +1,4 @@
-"""Управление подключением к базе данных. ававваа"""
+"""Управление подключением к базе данных."""
 
 import sqlite3
 from contextlib import contextmanager
@@ -14,7 +14,7 @@ class DatabaseConnection:
     - Инициализацию схемы таблиц
     - Предоставление контекстных менеджеров для транзакций
     """
-    
+
     def __init__(self, database_path: str) -> None:
         """Инициализация менеджера БД.
         
@@ -23,7 +23,7 @@ class DatabaseConnection:
         """
         self._database_path = database_path
         self._connection: Optional[sqlite3.Connection] = None
-    
+
     def connect(self) -> None:
         """Создать соединение с базой данных."""
         if self._connection is not None:
@@ -37,13 +37,13 @@ class DatabaseConnection:
             check_same_thread=False
         )
         self._connection.row_factory = sqlite3.Row
-    
+
     def close(self) -> None:
         """Закрыть соединение с базой данных."""
         if self._connection is not None:
             self._connection.close()
             self._connection = None
-    
+
     def initialize_schema(self) -> None:
         """Создать таблицы базы данных, если они не существуют."""
         if self._connection is None:
@@ -80,12 +80,41 @@ class DatabaseConnection:
                 message_id TEXT PRIMARY KEY,
                 user_id INTEGER NOT NULL,
                 user_name TEXT,
+                question_text TEXT NOT NULL DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
         self._connection.commit()
-    
+        
+        # Выполняем миграции для существующих БД
+        self._run_migrations()
+
+    def _run_migrations(self) -> None:
+        """Выполнить миграции для обновления существующих баз данных."""
+        if self._connection is None:
+            raise RuntimeError("Database connection is not established")
+        
+        cursor = self._connection.cursor()
+        
+        # Миграция 1: Добавление колонки question_text в message_mapping
+        try:
+            # Проверяем, существует ли колонка
+            cursor.execute("PRAGMA table_info(message_mapping)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if "question_text" not in columns:
+                print("🔄 Миграция: добавление колонки question_text в message_mapping...")
+                cursor.execute('''
+                    ALTER TABLE message_mapping 
+                    ADD COLUMN question_text TEXT NOT NULL DEFAULT ''
+                ''')
+                self._connection.commit()
+                print("✅ Миграция выполнена успешно")
+        except sqlite3.Error as e:
+            print(f"⚠️ Ошибка миграции: {e}")
+            # Не прерываем работу, т.к. колонка может уже существовать
+
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Cursor]:
         """Контекстный менеджер для выполнения транзакций.
@@ -111,7 +140,7 @@ class DatabaseConnection:
             raise
         finally:
             cursor.close()
-    
+
     @contextmanager
     def cursor(self) -> Iterator[sqlite3.Cursor]:
         """Контекстный менеджер для выполнения readonly запросов.
@@ -127,12 +156,12 @@ class DatabaseConnection:
             yield cursor
         finally:
             cursor.close()
-    
+
     def __enter__(self) -> "DatabaseConnection":
         """Поддержка контекстного менеджера."""
         self.connect()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Автоматическое закрытие соединения при выходе из контекста."""
         self.close()

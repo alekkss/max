@@ -17,7 +17,7 @@ class UpdateHandler:
     - Маршрутизацию по типам событий
     - Делегирование обработки сервисам
     """
-    
+
     def __init__(
         self,
         user_service: UserService,
@@ -37,7 +37,7 @@ class UpdateHandler:
         self._message_service = message_service
         self._export_service = export_service
         self._settings = settings
-    
+
     def handle_update(self, update: dict[str, Any]) -> None:
         """Обработать входящее событие.
         
@@ -53,7 +53,7 @@ class UpdateHandler:
         else:
             if self._settings.debug:
                 print(f"⚠️ Неизвестный тип события: {update_type}")
-    
+
     def _handle_message_created(self, update: dict[str, Any]) -> None:
         """Обработать событие создания сообщения."""
         message = update.get("message", {})
@@ -98,7 +98,7 @@ class UpdateHandler:
         if is_private_to_bot and not is_bot:
             self._handle_user_message(user_id, name, text)
             return
-    
+
     def _handle_bot_started(self, update: dict[str, Any]) -> None:
         """Обработать событие запуска бота пользователем."""
         user = update.get("user", {})
@@ -109,14 +109,14 @@ class UpdateHandler:
         
         # Делегируем обработку сервису
         self._user_service.handle_bot_started(user_id, name)
-    
+
     def _handle_start_command(self, user_id: int, name: str) -> None:
         """Обработать команду /start."""
         print(f"\n📨 /start от {name} (ID: {user_id})")
         
         # Делегируем обработку сервису
         self._user_service.handle_start_command(user_id, name)
-    
+
     def _handle_user_message(self, user_id: int, name: str, text: str) -> None:
         """Обработать сообщение от клиента."""
         text_preview = text[:50] + "..." if len(text) > 50 else text
@@ -135,7 +135,7 @@ class UpdateHandler:
             print(f"  ✅ Переслано в поддержку")
         else:
             print(f"  ❌ Ошибка пересылки")
-    
+
     def _handle_operator_reply(
         self,
         link: Optional[dict[str, Any]],
@@ -188,10 +188,53 @@ class UpdateHandler:
         )
         
         if success:
-            print(f"  ✅ Отправлено!")
+            print(f"   ✅ Отправлено!")
+            
+            # Обновляем счётчик ответов в исходном сообщении
+            self._update_reply_counter(replied_message_id, mapping)
         else:
-            print(f"  ❌ Ошибка отправки")
-    
+            print(f"   ❌ Ошибка отправки")
+
+    def _update_reply_counter(
+        self,
+        message_id: str,
+        mapping: 'MessageMapping'
+    ) -> None:
+        """Обновить счётчик ответов в сообщении чата поддержки.
+        
+        Args:
+            message_id: ID сообщения в чате для редактирования
+            mapping: Маппинг с данными о вопросе пользователя
+        """
+        try:
+            # Получаем актуальный счётчик ответов по текущему вопросу
+            replies_count = self._message_service.count_replies_for_question(mapping.user_id)
+            
+            # Формируем обновлённый текст с ОРИГИНАЛЬНЫМ текстом вопроса
+            updated_text = (
+                f"📨 {mapping.user_name} (ID: {mapping.user_id})\n"
+                f"👤 [{mapping.user_name}](max://user/{mapping.user_id})\n"
+                f"_Вопрос пользователя:_\n\n"
+                f"**{mapping.question_text}**\n\n"  # ← ИЗМЕНЕНО: используем сохранённый текст
+                f"💬 Ответов предоставлено: {replies_count}"
+            )
+            
+            # Редактируем сообщение в чате
+            api_client = self._user_service._api_client
+            api_client.edit_message(
+                chat_id=self._settings.support_chat_id,
+                message_id=message_id,
+                new_text=updated_text,
+                format="markdown"
+            )
+            
+            print(f"   🔄 Счётчик обновлён: {replies_count}")
+            
+        except Exception as e:
+            # Не прерываем работу бота, если редактирование не удалось
+            if self._settings.debug:
+                print(f"   ⚠️ Ошибка обновления счётчика: {e}")
+
     def _handle_export_command(self, operator_name: str) -> None:
         """Обработать команду /export из чата поддержки."""
         print(f"\n📊 Команда /export от {operator_name}")
@@ -203,15 +246,14 @@ class UpdateHandler:
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"users_export_{timestamp}.xlsx"
-            file_path = self._export_service.export_all_users_to_excel(filename)
             
+            file_path = self._export_service.export_all_users_to_excel(filename)
             print(f"   ✅ Excel файл создан: {file_path}")
             
             # Загружаем файл на сервер Max.ru
-            print(f"   ⬆️  Загрузка файла на сервер...")
+            print(f"   ⬆️ Загрузка файла на сервер...")
             api_client = self._user_service._api_client
             file_token = api_client.upload_file(file_path)
-            
             print(f"   ✅ Файл загружен, token: {file_token[:20]}...")
             
             # ВАЖНО: Ждем пока сервер обработает файл

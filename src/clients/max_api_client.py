@@ -29,7 +29,7 @@ class MaxApiHttpError(MaxApiError):
 
 class IMaxApiClient(ABC):
     """Интерфейс клиента для Max.ru API."""
-    
+
     @abstractmethod
     def get_updates(self, marker: Optional[str] = None, timeout: int = 30) -> dict[str, Any]:
         """Получить обновления через long polling.
@@ -37,21 +37,21 @@ class IMaxApiClient(ABC):
         Args:
             marker: Маркер для получения новых обновлений
             timeout: Таймаут long polling в секундах
-        
+            
         Returns:
             Словарь с ключами 'updates' и 'marker'
-        
+            
         Raises:
             MaxApiTimeoutError: При таймауте запроса
             MaxApiHttpError: При HTTP ошибке
         """
         pass
-    
+
     @abstractmethod
     def send_message_to_user(
-        self, 
-        user_id: int, 
-        text: str, 
+        self,
+        user_id: int,
+        text: str,
         format: Optional[str] = None
     ) -> dict[str, Any]:
         """Отправить сообщение пользователю.
@@ -60,20 +60,20 @@ class IMaxApiClient(ABC):
             user_id: ID пользователя
             text: Текст сообщения
             format: Формат текста ('markdown' или 'html'), optional
-        
+            
         Returns:
             Response от API с данными отправленного сообщения
-        
+            
         Raises:
             MaxApiHttpError: При ошибке отправки
         """
         pass
-    
+
     @abstractmethod
     def send_message_to_chat(
-        self, 
-        chat_id: int, 
-        text: str, 
+        self,
+        chat_id: int,
+        text: str,
         format: Optional[str] = None
     ) -> dict[str, Any]:
         """Отправить сообщение в групповой чат.
@@ -82,19 +82,43 @@ class IMaxApiClient(ABC):
             chat_id: ID чата
             text: Текст сообщения
             format: Формат текста ('markdown' или 'html'), optional
-        
+            
         Returns:
             Response от API с данными отправленного сообщения
-        
+            
         Raises:
             MaxApiHttpError: При ошибке отправки
+        """
+        pass
+
+    @abstractmethod
+    def edit_message(
+        self,
+        chat_id: int,
+        message_id: str,
+        new_text: str,
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Редактировать существующее сообщение в чате.
+        
+        Args:
+            chat_id: ID чата, где находится сообщение
+            message_id: ID сообщения для редактирования
+            new_text: Новый текст сообщения
+            format: Формат текста ('markdown' или 'html'), optional
+            
+        Returns:
+            Response от API с данными обновлённого сообщения
+            
+        Raises:
+            MaxApiHttpError: При ошибке редактирования
         """
         pass
 
 
 class MaxApiClient(IMaxApiClient):
     """Реализация клиента для Max.ru Platform API."""
-    
+
     def __init__(self, settings: Settings) -> None:
         """Инициализация клиента.
         
@@ -104,7 +128,7 @@ class MaxApiClient(IMaxApiClient):
         self._settings = settings
         self._session = requests.Session()
         self._session.headers.update(settings.api_headers)
-    
+
     def get_updates(self, marker: Optional[str] = None, timeout: int = 30) -> dict[str, Any]:
         """Получить обновления через long polling."""
         params: dict[str, Any] = {"timeout": timeout}
@@ -125,47 +149,82 @@ class MaxApiClient(IMaxApiClient):
                 )
             
             return response.json()
-        
+            
         except Timeout as e:
             raise MaxApiTimeoutError(f"Request timeout: {e}") from e
         except RequestException as e:
             raise MaxApiError(f"Request failed: {e}") from e
-    
+
     def send_message_to_user(
-        self, 
-        user_id: int, 
-        text: str, 
+        self,
+        user_id: int,
+        text: str,
         format: Optional[str] = None
     ) -> dict[str, Any]:
         """Отправить сообщение пользователю."""
         return self._send_message(
-            params={"user_id": user_id}, 
-            text=text, 
+            params={"user_id": user_id},
+            text=text,
             format=format
         )
-    
+
     def send_message_to_chat(
-        self, 
-        chat_id: int, 
-        text: str, 
+        self,
+        chat_id: int,
+        text: str,
         format: Optional[str] = None
     ) -> dict[str, Any]:
         """Отправить сообщение в групповой чат."""
         return self._send_message(
-            params={"chat_id": chat_id}, 
-            text=text, 
+            params={"chat_id": chat_id},
+            text=text,
             format=format
         )
-    
+
+    def edit_message(
+        self,
+        chat_id: int,
+        message_id: str,
+        new_text: str,
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Редактировать существующее сообщение в чате."""
+        try:
+            payload = {"text": new_text}
+            
+            # Добавляем формат, если указан
+            if format in ["markdown", "html"]:
+                payload["format"] = format
+            
+            response = self._session.put(
+                f"{self._settings.base_url}/messages",
+                params={"chat_id": chat_id, "message_id": message_id},
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code not in [200, 201]:
+                raise MaxApiHttpError(
+                    f"Failed to edit message: {response.text}",
+                    response.status_code
+                )
+            
+            return response.json()
+            
+        except Timeout as e:
+            raise MaxApiTimeoutError(f"Message edit timeout: {e}") from e
+        except RequestException as e:
+            raise MaxApiError(f"Message edit failed: {e}") from e
+
     def upload_file(self, file_path: str) -> str:
         """Загрузить файл на сервер Max.ru.
         
         Args:
             file_path: Путь к файлу для загрузки
-        
+            
         Returns:
             Token загруженного файла для использования в attachments
-        
+            
         Raises:
             MaxApiHttpError: При ошибке загрузки
             FileNotFoundError: Если файл не найден
@@ -229,12 +288,12 @@ class MaxApiClient(IMaxApiClient):
                 return str(file_id)
             
             raise MaxApiError(f"Cannot extract token from upload response. Step1: {upload_data}, Step2: status {upload_response.status_code}")
-        
+            
         except Timeout as e:
             raise MaxApiTimeoutError(f"File upload timeout: {e}") from e
         except RequestException as e:
             raise MaxApiError(f"File upload failed: {e}") from e
-    
+
     def send_file_to_chat(
         self,
         chat_id: int,
@@ -249,10 +308,10 @@ class MaxApiClient(IMaxApiClient):
             file_token: Token загруженного файла (из upload_file)
             text: Текст сообщения (описание файла)
             filename: Имя файла для отображения
-        
+            
         Returns:
             Response от API с данными отправленного сообщения
-        
+            
         Raises:
             MaxApiHttpError: При ошибке отправки
         """
@@ -283,15 +342,15 @@ class MaxApiClient(IMaxApiClient):
                 )
             
             return response.json()
-        
+            
         except Timeout as e:
             raise MaxApiTimeoutError(f"File send timeout: {e}") from e
         except RequestException as e:
             raise MaxApiError(f"File send failed: {e}") from e
-    
+
     def _send_message(
-        self, 
-        params: dict[str, int], 
+        self,
+        params: dict[str, int],
         text: str,
         format: Optional[str] = None
     ) -> dict[str, Any]:
@@ -301,10 +360,10 @@ class MaxApiClient(IMaxApiClient):
             params: Параметры запроса (user_id или chat_id)
             text: Текст сообщения
             format: Формат текста ('markdown' или 'html'), optional
-        
+            
         Returns:
             Response от API
-        
+            
         Raises:
             MaxApiHttpError: При ошибке отправки
         """
@@ -329,12 +388,12 @@ class MaxApiClient(IMaxApiClient):
                 )
             
             return response.json()
-        
+            
         except Timeout as e:
             raise MaxApiTimeoutError(f"Message send timeout: {e}") from e
         except RequestException as e:
             raise MaxApiError(f"Message send failed: {e}") from e
-    
+
     def close(self) -> None:
         """Закрыть сессию."""
         self._session.close()

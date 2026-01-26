@@ -8,7 +8,6 @@ from enum import Enum
 
 class MessageDirection(str, Enum):
     """Направление сообщения."""
-    
     FROM_USER = "from_user"  # От клиента к боту
     TO_USER = "to_user"      # От оператора к клиенту
 
@@ -25,7 +24,6 @@ class Message:
         operator_name: Имя оператора (если сообщение от оператора)
         timestamp: Дата и время отправки сообщения
     """
-    
     id: int
     user_id: int
     text: str
@@ -50,7 +48,6 @@ class MessageCreate:
         direction: Направление сообщения
         operator_name: Имя оператора (опционально)
     """
-    
     user_id: int
     text: str
     direction: MessageDirection
@@ -62,23 +59,26 @@ class MessageMapping:
     """Модель маппинга между message_id в чате поддержки и user_id клиента.
     
     Позволяет операторам отвечать через Reply, и бот понимает, какому клиенту
-    переслать ответ.
+    переслать ответ. Также сохраняет оригинальный текст вопроса для корректного
+    редактирования сообщения в чате.
     
     Attributes:
         message_id: ID сообщения в групповом чате поддержки
         user_id: ID пользователя-клиента
         user_name: Имя пользователя для удобства
+        question_text: Оригинальный текст вопроса пользователя
         created_at: Дата создания маппинга
     """
-    
     message_id: str
     user_id: int
     user_name: str
+    question_text: str
     created_at: datetime
     
     def __repr__(self) -> str:
         """Удобное строковое представление для логирования."""
-        return f"MessageMapping(msg_id={self.message_id}, user={self.user_name})"
+        text_preview = self.question_text[:30] + "..." if len(self.question_text) > 30 else self.question_text
+        return f"MessageMapping(msg_id={self.message_id}, user={self.user_name}, question='{text_preview}')"
 
 
 @dataclass(frozen=True)
@@ -89,8 +89,9 @@ class MessageMappingCreate:
         message_id: ID сообщения в чате поддержки
         user_id: ID клиента
         user_name: Имя клиента
+        question_text: Оригинальный текст вопроса
     """
-    
     message_id: str
     user_id: int
     user_name: str
+    question_text: str
