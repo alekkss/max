@@ -229,10 +229,10 @@ class UpdateHandler:
             
             # Формируем обновлённый текст с ОРИГИНАЛЬНЫМ текстом вопроса
             updated_text = (
-                f"📨 [{mapping.user_name}](max://user/{mapping.user_id}) (ID: {mapping.user_id})\n"
+                f"📨 [{mapping.user_name}](max://user/{mapping.user_id}) (ID: #{mapping.user_id})\n"
                 f"_Вопрос пользователя:_\n\n"
-                f"**{mapping.question_text}**\n\n"
-                f"💬 Ответов: {replies_count}"
+                f"{mapping.question_text}\n\n"
+                f"💬 Ответов:✅ {replies_count}"
             )
             
             # Редактируем сообщение в чате
