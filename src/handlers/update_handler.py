@@ -61,8 +61,6 @@ class UpdateHandler:
         body = message.get("body", {})
         text = body.get("text", "")
         message_id = body.get("mid")  # Извлекаем message_id для reply
-        # print(f"🔍 DEBUG message_id: {message_id}")
-        # print(f"🔍 DEBUG full message: {message}")
         
         sender = message.get("sender", {})
         user_id = sender.get("user_id")
@@ -93,9 +91,14 @@ class UpdateHandler:
         if is_from_support_chat:
             return
         
-        # СЦЕНАРИЙ 3: Команда /start от клиента
-        if is_private_to_bot and text.strip().lower() in ["/start", "/hello"]:
+        # СЦЕНАРИЙ 3: Команда /start или кнопка "Начать" от клиента
+        if is_private_to_bot and text.strip().lower() in ["/start", "/hello", "начать", "start"]:
             self._handle_start_command(user_id, name)
+            return
+        
+        # СЦЕНАРИЙ 3.5: Игнорируем автоматические приветственные сообщения
+        if is_private_to_bot and text.startswith("Добро пожаловать в LaVita yarn!"):
+            print(f"\n⚠️ Автоматическое приветствие от {name} проигнорировано")
             return
         
         # СЦЕНАРИЙ 4: Обычное сообщение от клиента
@@ -232,7 +235,7 @@ class UpdateHandler:
                 f"📨 [{mapping.user_name}](max://user/{mapping.user_id}) (ID: #{mapping.user_id})\n"
                 f"_Вопрос пользователя:_\n\n"
                 f"{mapping.question_text}\n\n"
-                f"💬 Ответов:✅ {replies_count}"
+                f"💬 Ответов: ✅ {replies_count}"
             )
             
             # Редактируем сообщение в чате
