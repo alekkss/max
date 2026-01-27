@@ -129,11 +129,10 @@ class MessageService:
         replies_count = self._message_repository.count_replies_since_last_user_message(user_id)
         
         forward_text = (
-            f"📨 {user_name} (ID: {user_id})\n"
-            f"👤 [{user_name}](max://user/{user_id})\n"
+            f"📨 [{user_name}](max://user/{user_id}) (ID: {user_id})\n"
             f"_Вопрос пользователя:_\n\n"
             f"**{text}**\n\n"
-            f"💬 Ответов предоставлено: {replies_count}"
+            f"💬 Ответов: {replies_count}"
         )
         
         try:
