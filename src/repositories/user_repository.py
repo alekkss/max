@@ -18,7 +18,7 @@ class IUserRepository(ABC):
     def save(self, user_data: UserCreate | UserUpdate) -> User:
         """Сохранить или обновить пользователя.
         
-        Если пользователь существует - обновляет name и last_contact.
+        Если пользователь существует - обновляет name, phone_number и last_contact.
         Если не существует - создает нового.
         
         Args:
@@ -52,6 +52,19 @@ class IUserRepository(ABC):
             True если пользователь существует
         """
         pass
+    
+    @abstractmethod
+    def update_phone_number(self, user_id: int, phone_number: str) -> User:
+        """Обновить номер телефона пользователя.
+        
+        Args:
+            user_id: ID пользователя
+            phone_number: Номер телефона
+            
+        Returns:
+            Обновленный пользователь
+        """
+        pass
 
 
 class SQLiteUserRepository(IUserRepository):
@@ -69,12 +82,13 @@ class SQLiteUserRepository(IUserRepository):
         """Сохранить или обновить пользователя."""
         with self._db.transaction() as cursor:
             cursor.execute('''
-                INSERT INTO users (user_id, name, last_contact)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO users (user_id, name, phone_number, last_contact)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
                     name = excluded.name,
+                    phone_number = excluded.phone_number,
                     last_contact = CURRENT_TIMESTAMP
-            ''', (user_data.user_id, user_data.name))
+            ''', (user_data.user_id, user_data.name, user_data.phone_number))
         
         # Получаем актуальные данные из БД
         result = self.get_by_id(user_data.user_id)
@@ -87,7 +101,7 @@ class SQLiteUserRepository(IUserRepository):
         """Получить пользователя по ID."""
         with self._db.cursor() as cursor:
             cursor.execute('''
-                SELECT user_id, name, first_contact, last_contact
+                SELECT user_id, name, first_contact, last_contact, phone_number
                 FROM users
                 WHERE user_id = ?
             ''', (user_id,))
@@ -100,7 +114,8 @@ class SQLiteUserRepository(IUserRepository):
                 user_id=row["user_id"],
                 name=row["name"],
                 first_contact=datetime.fromisoformat(row["first_contact"]),
-                last_contact=datetime.fromisoformat(row["last_contact"])
+                last_contact=datetime.fromisoformat(row["last_contact"]),
+                phone_number=row["phone_number"]
             )
     
     def exists(self, user_id: int) -> bool:
@@ -111,3 +126,19 @@ class SQLiteUserRepository(IUserRepository):
                 (user_id,)
             )
             return cursor.fetchone() is not None
+    
+    def update_phone_number(self, user_id: int, phone_number: str) -> User:
+        """Обновить номер телефона пользователя."""
+        with self._db.transaction() as cursor:
+            cursor.execute('''
+                UPDATE users 
+                SET phone_number = ?, last_contact = CURRENT_TIMESTAMP
+                WHERE user_id = ?
+            ''', (phone_number, user_id))
+        
+        # Получаем обновленного пользователя
+        result = self.get_by_id(user_id)
+        if result is None:
+            raise RuntimeError(f"User {user_id} not found after phone update")
+        
+        return result

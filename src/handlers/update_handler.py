@@ -145,6 +145,28 @@ class UpdateHandler:
         # Регистрируем/обновляем пользователя
         self._user_service.register_or_update_user(user_id, name)
         
+        # ПРОВЕРКА: Есть ли у пользователя номер телефона?
+        if not self._user_service.has_phone_number(user_id):
+            # Пользователь ещё не ввёл номер телефона
+            
+            # Пытаемся валидировать текущее сообщение как номер
+            phone_number = self._user_service.validate_phone_number(text)
+            
+            if phone_number:
+                # Валидный номер - сохраняем
+                self._user_service.save_phone_number(user_id, phone_number)
+                self._user_service.confirm_phone_saved(user_id, phone_number)
+                print(f"  📞 Номер телефона сохранен: {phone_number}")
+            else:
+                # Не валидный номер - напоминаем ввести
+                self._user_service.request_phone_number(user_id)
+                print(f"  ⚠️ Пользователь не указал номер телефона")
+            
+            # НЕ пересылаем в чат поддержки
+            return
+        
+        # Пользователь УЖЕ ввёл номер - работаем как обычно
+        
         # Сохраняем сообщение в историю с message_id
         self._message_service.save_user_message(user_id, text, message_id)
         

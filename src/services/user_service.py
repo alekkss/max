@@ -1,6 +1,7 @@
 """Сервис для работы с пользователями."""
 
 from typing import Optional
+import re
 
 from src.repositories.user_repository import IUserRepository
 from src.clients.max_api_client import IMaxApiClient
@@ -15,6 +16,7 @@ class UserService:
     - Регистрацию новых пользователей
     - Обновление данных существующих пользователей
     - Отправку приветственных сообщений
+    - Валидацию и сохранение номеров телефонов
     """
     
     def __init__(
@@ -58,6 +60,82 @@ class UserService:
         """
         return self._user_repository.get_by_id(user_id)
     
+    def has_phone_number(self, user_id: int) -> bool:
+        """Проверить, есть ли у пользователя номер телефона.
+        
+        Args:
+            user_id: ID пользователя
+            
+        Returns:
+            True если номер есть, False если нет
+        """
+        user = self._user_repository.get_by_id(user_id)
+        return user is not None and user.phone_number is not None and user.phone_number.strip() != ""
+    
+    def validate_phone_number(self, text: str) -> Optional[str]:
+        """Валидировать номер телефона.
+        
+        Номер должен начинаться с + и содержать только цифры после него.
+        
+        Args:
+            text: Текст для проверки
+            
+        Returns:
+            Отформатированный номер телефона или None если не валиден
+        """
+        # Убираем пробелы
+        text = text.strip()
+        
+        # Проверяем, что начинается с + и содержит хотя бы одну цифру
+        if not text.startswith("+"):
+            return None
+        
+        # Убираем все символы кроме + и цифр
+        cleaned = re.sub(r'[^\d+]', '', text)
+        
+        # Проверяем что есть хотя бы 10 цифр после +
+        if len(cleaned) < 11:  # + и минимум 10 цифр
+            return None
+        
+        return cleaned
+    
+    def save_phone_number(self, user_id: int, phone_number: str) -> User:
+        """Сохранить номер телефона пользователя.
+        
+        Args:
+            user_id: ID пользователя
+            phone_number: Номер телефона
+            
+        Returns:
+            Обновленный пользователь
+        """
+        return self._user_repository.update_phone_number(user_id, phone_number)
+    
+    def request_phone_number(self, user_id: int) -> None:
+        """Напомнить пользователю ввести номер телефона.
+        
+        Args:
+            user_id: ID пользователя
+        """
+        message = (
+            "📞 Пожалуйста, сначала укажите ваш номер телефона для связи.\n\n"
+            "Формат: +79991234567"
+        )
+        self._api_client.send_message_to_user(user_id, message)
+    
+    def confirm_phone_saved(self, user_id: int, phone_number: str) -> None:
+        """Подтвердить сохранение номера телефона.
+        
+        Args:
+            user_id: ID пользователя
+            phone_number: Сохраненный номер
+        """
+        message = (
+            f"✅ Спасибо! Ваш номер телефона {phone_number} сохранен.\n\n"
+            "Теперь вы можете задать ваш вопрос."
+        )
+        self._api_client.send_message_to_user(user_id, message)
+    
     def send_welcome_message(self, user_id: int, name: str) -> None:
         """Отправить приветственное сообщение новому пользователю.
         
@@ -68,14 +146,11 @@ class UserService:
         welcome_text = (
             f"👋 Привет, {name}!\n\n"
             "Добро пожаловать! Я бот LaVita yarn.\n\n"
-            "Пришлите ваш номер телефона для связи"
+            "📞 Пожалуйста, укажите ваш номер телефона для связи.\n\n"
+            "Формат: +79991234567"
         )
         
         self._api_client.send_message_to_user(user_id, welcome_text)
-        
-        # Отправляем второе сообщение с просьбой задать вопрос
-        prompt_text = "Напишите ваш вопрос."
-        self._api_client.send_message_to_user(user_id, prompt_text)
     
     def handle_start_command(self, user_id: int, name: str) -> None:
         """Обработать команду /start от пользователя.
@@ -87,7 +162,7 @@ class UserService:
         # Регистрируем или обновляем пользователя
         self.register_or_update_user(user_id, name)
         
-        # Отправляем приветствие
+        # Отправляем приветствие с запросом номера
         self.send_welcome_message(user_id, name)
     
     def handle_bot_started(self, user_id: int, name: str) -> None:
@@ -100,5 +175,5 @@ class UserService:
         # Регистрируем нового пользователя
         self.register_or_update_user(user_id, name)
         
-        # Отправляем приветствие
+        # Отправляем приветствие с запросом номера
         self.send_welcome_message(user_id, name)

@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from typing import Iterator, Optional
 from pathlib import Path
 
+
 class DatabaseConnection:
     """Менеджер подключения к SQLite базе данных.
     
@@ -130,6 +131,24 @@ class DatabaseConnection:
                 print("✅ Миграция 2 выполнена успешно")
         except sqlite3.Error as e:
             print(f"⚠️ Ошибка миграции 2: {e}")
+            # Не прерываем работу, т.к. колонка может уже существовать
+        
+        # Миграция 3: Добавление колонки phone_number в users
+        try:
+            # Проверяем, существует ли колонка
+            cursor.execute("PRAGMA table_info(users)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if "phone_number" not in columns:
+                print("🔄 Миграция 3: добавление колонки phone_number в users...")
+                cursor.execute('''
+                    ALTER TABLE users 
+                    ADD COLUMN phone_number TEXT
+                ''')
+                self._connection.commit()
+                print("✅ Миграция 3 выполнена успешно")
+        except sqlite3.Error as e:
+            print(f"⚠️ Ошибка миграции 3: {e}")
             # Не прерываем работу, т.к. колонка может уже существовать
     
     @contextmanager

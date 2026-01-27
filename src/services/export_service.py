@@ -66,7 +66,7 @@ class ExportService:
         sheet = workbook.create_sheet("Пользователи")
         
         # Заголовки
-        headers = ["User ID", "Имя", "Первый контакт", "Последний контакт", "Всего сообщений", "Ответов оператора"]
+        headers = ["User ID", "Имя", "Телефон", "Первый контакт", "Последний контакт", "Всего сообщений", "Ответов оператора"]
         sheet.append(headers)
         
         # Форматирование заголовков
@@ -91,6 +91,7 @@ class ExportService:
             row = [
                 user.user_id,
                 user.name,
+                user.phone_number or "-",
                 user.first_contact.strftime("%Y-%m-%d %H:%M:%S"),
                 user.last_contact.strftime("%Y-%m-%d %H:%M:%S"),
                 total_messages,
@@ -183,7 +184,7 @@ class ExportService:
         # Получаем доступ к БД через репозиторий
         with self._user_repository._db.cursor() as cursor:
             cursor.execute('''
-                SELECT user_id, name, first_contact, last_contact
+                SELECT user_id, name, first_contact, last_contact, phone_number
                 FROM users
                 ORDER BY last_contact DESC
             ''')
@@ -196,7 +197,8 @@ class ExportService:
                     user_id=row["user_id"],
                     name=row["name"],
                     first_contact=datetime.fromisoformat(row["first_contact"]),
-                    last_contact=datetime.fromisoformat(row["last_contact"])
+                    last_contact=datetime.fromisoformat(row["last_contact"]),
+                    phone_number=row["phone_number"]
                 )
                 users.append(user)
             
