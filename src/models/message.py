@@ -21,8 +21,9 @@ class Message:
         user_id: ID пользователя, связанного с сообщением
         text: Текст сообщения
         direction: Направление сообщения (от/к пользователю)
-        operator_name: Имя оператора (если сообщение от оператора)
         timestamp: Дата и время отправки сообщения
+        operator_name: Имя оператора (если сообщение от оператора)
+        user_message_id: ID сообщения из Max.ru API (для reply-ответов)
     """
     id: int
     user_id: int
@@ -30,6 +31,7 @@ class Message:
     direction: MessageDirection
     timestamp: datetime
     operator_name: Optional[str] = None
+    user_message_id: Optional[str] = None
     
     def __repr__(self) -> str:
         """Удобное строковое представление для логирования."""
@@ -47,11 +49,13 @@ class MessageCreate:
         text: Текст сообщения
         direction: Направление сообщения
         operator_name: Имя оператора (опционально)
+        user_message_id: ID сообщения из Max.ru API (опционально)
     """
     user_id: int
     text: str
     direction: MessageDirection
     operator_name: Optional[str] = None
+    user_message_id: Optional[str] = None
 
 
 @dataclass(frozen=True)

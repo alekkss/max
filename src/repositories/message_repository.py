@@ -71,6 +71,20 @@ class IMessageRepository(ABC):
         pass
 
     @abstractmethod
+    def get_last_user_message_id(self, user_id: int) -> Optional[str]:
+        """Получить message_id последнего сообщения пользователя.
+        
+        Используется для reply-ответов оператора на исходное сообщение.
+        
+        Args:
+            user_id: ID пользователя
+            
+        Returns:
+            message_id из Max.ru API или None, если сообщений нет
+        """
+        pass
+
+    @abstractmethod
     def save_mapping(self, mapping_data: MessageMappingCreate) -> MessageMapping:
         """Сохранить маппинг между message_id в чате и user_id.
         
@@ -110,20 +124,21 @@ class SQLiteMessageRepository(IMessageRepository):
         """Сохранить новое сообщение в истории."""
         with self._db.transaction() as cursor:
             cursor.execute('''
-                INSERT INTO messages (user_id, text, direction, operator_name)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO messages (user_id, text, direction, operator_name, user_message_id)
+                VALUES (?, ?, ?, ?, ?)
             ''', (
                 message_data.user_id,
                 message_data.text,
                 message_data.direction.value,
-                message_data.operator_name
+                message_data.operator_name,
+                message_data.user_message_id
             ))
             message_id = cursor.lastrowid
 
         # Получаем сохраненное сообщение
         with self._db.cursor() as cursor:
             cursor.execute('''
-                SELECT id, user_id, text, direction, operator_name, timestamp
+                SELECT id, user_id, text, direction, operator_name, timestamp, user_message_id
                 FROM messages
                 WHERE id = ?
             ''', (message_id,))
@@ -138,7 +153,7 @@ class SQLiteMessageRepository(IMessageRepository):
         """Получить историю сообщений пользователя."""
         with self._db.cursor() as cursor:
             cursor.execute('''
-                SELECT id, user_id, text, direction, operator_name, timestamp
+                SELECT id, user_id, text, direction, operator_name, timestamp, user_message_id
                 FROM messages
                 WHERE user_id = ?
                 ORDER BY timestamp DESC
@@ -192,6 +207,24 @@ class SQLiteMessageRepository(IMessageRepository):
             row = cursor.fetchone()
             return row["count"] if row else 0
 
+    def get_last_user_message_id(self, user_id: int) -> Optional[str]:
+        """Получить message_id последнего сообщения пользователя."""
+        with self._db.cursor() as cursor:
+            cursor.execute('''
+                SELECT user_message_id
+                FROM messages
+                WHERE user_id = ? AND direction = ? AND user_message_id IS NOT NULL
+                ORDER BY timestamp DESC
+                LIMIT 1
+            ''', (user_id, MessageDirection.FROM_USER.value))
+            
+            row = cursor.fetchone()
+            
+            if row is None:
+                return None
+            
+            return row["user_message_id"]
+
     def save_mapping(self, mapping_data: MessageMappingCreate) -> MessageMapping:
         """Сохранить маппинг между message_id в чате и user_id."""
         with self._db.transaction() as cursor:
@@ -242,5 +275,6 @@ class SQLiteMessageRepository(IMessageRepository):
             text=row["text"],
             direction=MessageDirection(row["direction"]),
             timestamp=datetime.fromisoformat(row["timestamp"]),
-            operator_name=row["operator_name"]
+            operator_name=row["operator_name"],
+            user_message_id=row["user_message_id"]
         )

@@ -52,7 +52,8 @@ class IMaxApiClient(ABC):
         self,
         user_id: int,
         text: str,
-        format: Optional[str] = None
+        format: Optional[str] = None,
+        reply_to: Optional[str] = None
     ) -> dict[str, Any]:
         """Отправить сообщение пользователю.
         
@@ -60,6 +61,7 @@ class IMaxApiClient(ABC):
             user_id: ID пользователя
             text: Текст сообщения
             format: Формат текста ('markdown' или 'html'), optional
+            reply_to: ID сообщения для reply-ответа, optional
             
         Returns:
             Response от API с данными отправленного сообщения
@@ -159,13 +161,15 @@ class MaxApiClient(IMaxApiClient):
         self,
         user_id: int,
         text: str,
-        format: Optional[str] = None
+        format: Optional[str] = None,
+        reply_to: Optional[str] = None
     ) -> dict[str, Any]:
         """Отправить сообщение пользователю."""
         return self._send_message(
             params={"user_id": user_id},
             text=text,
-            format=format
+            format=format,
+            reply_to=reply_to
         )
 
     def send_message_to_chat(
@@ -352,7 +356,8 @@ class MaxApiClient(IMaxApiClient):
         self,
         params: dict[str, int],
         text: str,
-        format: Optional[str] = None
+        format: Optional[str] = None,
+        reply_to: Optional[str] = None
     ) -> dict[str, Any]:
         """Внутренний метод для отправки сообщений.
         
@@ -360,6 +365,7 @@ class MaxApiClient(IMaxApiClient):
             params: Параметры запроса (user_id или chat_id)
             text: Текст сообщения
             format: Формат текста ('markdown' или 'html'), optional
+            reply_to: ID сообщения для reply-ответа, optional
             
         Returns:
             Response от API
@@ -374,12 +380,21 @@ class MaxApiClient(IMaxApiClient):
             if format in ["markdown", "html"]:
                 payload["format"] = format
             
+            # Добавляем reply_to, если указан
+            if reply_to:
+                payload["link"] = {
+                    "type": "reply",
+                    "mid": reply_to
+                }
+            
+            
             response = self._session.post(
                 f"{self._settings.base_url}/messages",
                 params=params,
                 json=payload,
                 timeout=10
             )
+            
             
             if response.status_code not in [200, 201]:
                 raise MaxApiHttpError(

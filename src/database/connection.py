@@ -5,7 +5,6 @@ from contextlib import contextmanager
 from typing import Iterator, Optional
 from pathlib import Path
 
-
 class DatabaseConnection:
     """Менеджер подключения к SQLite базе данных.
     
@@ -14,7 +13,7 @@ class DatabaseConnection:
     - Инициализацию схемы таблиц
     - Предоставление контекстных менеджеров для транзакций
     """
-
+    
     def __init__(self, database_path: str) -> None:
         """Инициализация менеджера БД.
         
@@ -23,7 +22,7 @@ class DatabaseConnection:
         """
         self._database_path = database_path
         self._connection: Optional[sqlite3.Connection] = None
-
+    
     def connect(self) -> None:
         """Создать соединение с базой данных."""
         if self._connection is not None:
@@ -37,13 +36,13 @@ class DatabaseConnection:
             check_same_thread=False
         )
         self._connection.row_factory = sqlite3.Row
-
+    
     def close(self) -> None:
         """Закрыть соединение с базой данных."""
         if self._connection is not None:
             self._connection.close()
             self._connection = None
-
+    
     def initialize_schema(self) -> None:
         """Создать таблицы базы данных, если они не существуют."""
         if self._connection is None:
@@ -89,7 +88,7 @@ class DatabaseConnection:
         
         # Выполняем миграции для существующих БД
         self._run_migrations()
-
+    
     def _run_migrations(self) -> None:
         """Выполнить миграции для обновления существующих баз данных."""
         if self._connection is None:
@@ -104,17 +103,35 @@ class DatabaseConnection:
             columns = [row[1] for row in cursor.fetchall()]
             
             if "question_text" not in columns:
-                print("🔄 Миграция: добавление колонки question_text в message_mapping...")
+                print("🔄 Миграция 1: добавление колонки question_text в message_mapping...")
                 cursor.execute('''
                     ALTER TABLE message_mapping 
                     ADD COLUMN question_text TEXT NOT NULL DEFAULT ''
                 ''')
                 self._connection.commit()
-                print("✅ Миграция выполнена успешно")
+                print("✅ Миграция 1 выполнена успешно")
         except sqlite3.Error as e:
-            print(f"⚠️ Ошибка миграции: {e}")
+            print(f"⚠️ Ошибка миграции 1: {e}")
             # Не прерываем работу, т.к. колонка может уже существовать
-
+        
+        # Миграция 2: Добавление колонки user_message_id в messages
+        try:
+            # Проверяем, существует ли колонка
+            cursor.execute("PRAGMA table_info(messages)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if "user_message_id" not in columns:
+                print("🔄 Миграция 2: добавление колонки user_message_id в messages...")
+                cursor.execute('''
+                    ALTER TABLE messages 
+                    ADD COLUMN user_message_id TEXT
+                ''')
+                self._connection.commit()
+                print("✅ Миграция 2 выполнена успешно")
+        except sqlite3.Error as e:
+            print(f"⚠️ Ошибка миграции 2: {e}")
+            # Не прерываем работу, т.к. колонка может уже существовать
+    
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Cursor]:
         """Контекстный менеджер для выполнения транзакций.
@@ -123,7 +140,7 @@ class DatabaseConnection:
         
         Yields:
             Cursor для выполнения SQL-запросов
-            
+        
         Example:
             with db.transaction() as cursor:
                 cursor.execute("INSERT INTO users ...")
@@ -140,7 +157,7 @@ class DatabaseConnection:
             raise
         finally:
             cursor.close()
-
+    
     @contextmanager
     def cursor(self) -> Iterator[sqlite3.Cursor]:
         """Контекстный менеджер для выполнения readonly запросов.
@@ -156,12 +173,12 @@ class DatabaseConnection:
             yield cursor
         finally:
             cursor.close()
-
+    
     def __enter__(self) -> "DatabaseConnection":
         """Поддержка контекстного менеджера."""
         self.connect()
         return self
-
+    
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Автоматическое закрытие соединения при выходе из контекста."""
         self.close()

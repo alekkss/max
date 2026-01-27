@@ -56,9 +56,13 @@ class UpdateHandler:
 
     def _handle_message_created(self, update: dict[str, Any]) -> None:
         """Обработать событие создания сообщения."""
+
         message = update.get("message", {})
         body = message.get("body", {})
         text = body.get("text", "")
+        message_id = body.get("mid")  # Извлекаем message_id для reply
+        # print(f"🔍 DEBUG message_id: {message_id}")
+        # print(f"🔍 DEBUG full message: {message}")
         
         sender = message.get("sender", {})
         user_id = sender.get("user_id")
@@ -96,7 +100,7 @@ class UpdateHandler:
         
         # СЦЕНАРИЙ 4: Обычное сообщение от клиента
         if is_private_to_bot and not is_bot:
-            self._handle_user_message(user_id, name, text)
+            self._handle_user_message(user_id, name, text, message_id)
             return
 
     def _handle_bot_started(self, update: dict[str, Any]) -> None:
@@ -117,21 +121,34 @@ class UpdateHandler:
         # Делегируем обработку сервису
         self._user_service.handle_start_command(user_id, name)
 
-    def _handle_user_message(self, user_id: int, name: str, text: str) -> None:
-        """Обработать сообщение от клиента."""
+    def _handle_user_message(
+        self,
+        user_id: int,
+        name: str,
+        text: str,
+        message_id: Optional[str]
+    ) -> None:
+        """Обработать сообщение от клиента.
+        
+        Args:
+            user_id: ID пользователя
+            name: Имя пользователя
+            text: Текст сообщения
+            message_id: ID сообщения из Max.ru API (для reply)
+        """
         text_preview = text[:50] + "..." if len(text) > 50 else text
         print(f"\n📤 {name}: {text_preview}")
         
         # Регистрируем/обновляем пользователя
         self._user_service.register_or_update_user(user_id, name)
         
-        # Сохраняем сообщение в историю
-        self._message_service.save_user_message(user_id, text)
+        # Сохраняем сообщение в историю с message_id
+        self._message_service.save_user_message(user_id, text, message_id)
         
         # Пересылаем в чат поддержки
-        message_id = self._message_service.forward_to_support(user_id, name, text)
+        support_message_id = self._message_service.forward_to_support(user_id, name, text)
         
-        if message_id:
+        if support_message_id:
             print(f"  ✅ Переслано в поддержку")
         else:
             print(f"  ❌ Ошибка пересылки")
@@ -214,7 +231,7 @@ class UpdateHandler:
             updated_text = (
                 f"📨 [{mapping.user_name}](max://user/{mapping.user_id}) (ID: {mapping.user_id})\n"
                 f"_Вопрос пользователя:_\n\n"
-                f"**{mapping.question_text}**\n\n"  # ← ИЗМЕНЕНО: используем сохранённый текст
+                f"**{mapping.question_text}**\n\n"
                 f"💬 Ответов: {replies_count}"
             )
             

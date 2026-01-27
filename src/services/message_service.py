@@ -41,12 +41,18 @@ class MessageService:
         self._api_client = api_client
         self._settings = settings
 
-    def save_user_message(self, user_id: int, text: str) -> Message:
+    def save_user_message(
+        self,
+        user_id: int,
+        text: str,
+        user_message_id: Optional[str] = None
+    ) -> Message:
         """Сохранить сообщение от пользователя в историю.
         
         Args:
             user_id: ID пользователя
             text: Текст сообщения
+            user_message_id: ID сообщения из Max.ru API (для reply)
             
         Returns:
             Сохраненное сообщение
@@ -54,7 +60,8 @@ class MessageService:
         message_data = MessageCreate(
             user_id=user_id,
             text=text,
-            direction=MessageDirection.FROM_USER
+            direction=MessageDirection.FROM_USER,
+            user_message_id=user_message_id
         )
         return self._message_repository.save_message(message_data)
 
@@ -153,7 +160,7 @@ class MessageService:
                     message_id=message_id,
                     user_id=user_id,
                     user_name=user_name,
-                    question_text=text  # ← ДОБАВЛЕНО: сохраняем оригинальный текст
+                    question_text=text
                 )
                 self._message_repository.save_mapping(mapping_data)
                 return message_id
@@ -184,7 +191,15 @@ class MessageService:
         full_reply = f"💬 {text}"
         
         try:
-            self._api_client.send_message_to_user(user_id, full_reply)
+            # Получаем последний message_id пользователя для reply
+            reply_to_message_id = self._message_repository.get_last_user_message_id(user_id)
+            
+            # Отправляем ответ с reply_to, если message_id найден
+            self._api_client.send_message_to_user(
+                user_id,
+                full_reply,
+                reply_to=reply_to_message_id
+            )
             return True
             
         except MaxApiHttpError as e:
