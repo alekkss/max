@@ -81,14 +81,25 @@ class SQLiteUserRepository(IUserRepository):
     def save(self, user_data: UserCreate | UserUpdate) -> User:
         """Сохранить или обновить пользователя."""
         with self._db.transaction() as cursor:
-            cursor.execute('''
-                INSERT INTO users (user_id, name, phone_number, last_contact)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    name = excluded.name,
-                    phone_number = excluded.phone_number,
-                    last_contact = CURRENT_TIMESTAMP
-            ''', (user_data.user_id, user_data.name, user_data.phone_number))
+            if user_data.phone_number is not None:
+                # Если передан phone_number - обновляем его тоже
+                cursor.execute('''
+                    INSERT INTO users (user_id, name, phone_number, last_contact)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        name = excluded.name,
+                        phone_number = excluded.phone_number,
+                        last_contact = CURRENT_TIMESTAMP
+                ''', (user_data.user_id, user_data.name, user_data.phone_number))
+            else:
+                # Если phone_number = None - НЕ обновляем его (сохраняем существующий)
+                cursor.execute('''
+                    INSERT INTO users (user_id, name, last_contact)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        name = excluded.name,
+                        last_contact = CURRENT_TIMESTAMP
+                ''', (user_data.user_id, user_data.name))
         
         # Получаем актуальные данные из БД
         result = self.get_by_id(user_data.user_id)
