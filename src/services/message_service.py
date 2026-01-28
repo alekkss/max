@@ -1,6 +1,7 @@
 """Сервис для работы с сообщениями."""
 
 from typing import Optional, List
+from datetime import datetime
 
 from src.repositories.message_repository import IMessageRepository
 from src.clients.max_api_client import IMaxApiClient, MaxApiHttpError
@@ -22,8 +23,9 @@ class MessageService:
     - Пересылку сообщений клиентов в чат поддержки
     - Обработку ответов операторов
     - Управление маппингом сообщений
+    - Отправку автоматических подтверждений
     """
-
+    
     def __init__(
         self,
         message_repository: IMessageRepository,
@@ -40,7 +42,51 @@ class MessageService:
         self._message_repository = message_repository
         self._api_client = api_client
         self._settings = settings
-
+    
+    def get_greeting_by_time(self) -> str:
+        """Получить приветствие в зависимости от текущего времени суток.
+        
+        Логика:
+        - Утро: 6:00 - 11:59
+        - День: 12:00 - 17:59
+        - Вечер: 18:00 - 5:59
+        
+        Returns:
+            Приветствие: "утро", "день" или "вечер"
+        """
+        current_hour = datetime.now().hour
+        
+        if 6 <= current_hour < 12:
+            return "утро"
+        elif 12 <= current_hour < 18:
+            return "день"
+        else:
+            return "вечер"
+    
+    def send_message_received_confirmation(self, user_id: int, user_name: str) -> bool:
+        """Отправить подтверждение получения сообщения пользователю.
+        
+        Args:
+            user_id: ID пользователя
+            user_name: Имя пользователя
+            
+        Returns:
+            True если успешно отправлено, False при ошибке
+        """
+        greeting = self.get_greeting_by_time()
+        
+        confirmation_text = (
+            f"Добрый {greeting}, {user_name}! "
+            f"Ваше сообщение принято. Первый освободившийся оператор ответит в ближайшее время."
+        )
+        
+        try:
+            self._api_client.send_message_to_user(user_id, confirmation_text)
+            return True
+        except MaxApiHttpError as e:
+            print(f"⚠️ Ошибка отправки подтверждения пользователю {user_id}: {e}")
+            return False
+    
     def save_user_message(
         self,
         user_id: int,
@@ -63,8 +109,9 @@ class MessageService:
             direction=MessageDirection.FROM_USER,
             user_message_id=user_message_id
         )
+        
         return self._message_repository.save_message(message_data)
-
+    
     def save_operator_message(
         self,
         user_id: int,
@@ -87,8 +134,9 @@ class MessageService:
             direction=MessageDirection.TO_USER,
             operator_name=operator_name
         )
+        
         return self._message_repository.save_message(message_data)
-
+    
     def get_user_history(self, user_id: int, limit: int = 50) -> List[Message]:
         """Получить историю сообщений пользователя.
         
@@ -100,7 +148,7 @@ class MessageService:
             Список сообщений
         """
         return self._message_repository.get_user_messages(user_id, limit)
-
+    
     def count_replies_for_question(self, user_id: int) -> int:
         """Подсчитать количество ответов по текущему вопросу пользователя.
         
@@ -115,7 +163,7 @@ class MessageService:
             Количество ответов по текущему вопросу
         """
         return self._message_repository.count_replies_since_last_user_message(user_id)
-
+    
     def forward_to_support(
         self,
         user_id: int,
@@ -163,13 +211,14 @@ class MessageService:
                     question_text=text
                 )
                 self._message_repository.save_mapping(mapping_data)
-                return message_id
-                
+            
+            return message_id
+        
         except MaxApiHttpError as e:
             # Логируем ошибку, но не прерываем работу бота
             print(f"❌ Ошибка пересылки в чат поддержки: {e}")
             return None
-
+    
     def send_operator_reply(
         self,
         user_id: int,
@@ -200,12 +249,13 @@ class MessageService:
                 full_reply,
                 reply_to=reply_to_message_id
             )
-            return True
             
+            return True
+        
         except MaxApiHttpError as e:
             print(f"❌ Ошибка отправки ответа пользователю {user_id}: {e}")
             return False
-
+    
     def get_mapping_by_message_id(self, message_id: str) -> Optional[MessageMapping]:
         """Получить маппинг по message_id из чата поддержки.
         
