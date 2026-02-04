@@ -97,6 +97,16 @@ class UpdateHandler:
         if is_from_support_chat:
             return
         
+        # СЦЕНАРИЙ 2.5: Текст от админа в режиме создания уведомления (НОВОЕ)
+        if is_private_to_bot and not is_bot:
+            # Проверяем, является ли пользователь админом
+            if self._admin_service.is_admin(user_id):
+                # Проверяем, ожидает ли админ ввода текста уведомления
+                if self._admin_service.is_waiting_notification_text(user_id):
+                    print(f"\n📝 Текст уведомления от admin_id={user_id}")
+                    self._admin_service.handle_notification_text(user_id, text)
+                    return
+        
         # СЦЕНАРИЙ 3: Команда /admin от клиента (НОВОЕ)
         if is_private_to_bot and text.strip().lower() == "/admin":
             self._handle_admin_command(user_id, name)
