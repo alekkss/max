@@ -1,6 +1,9 @@
 """Сервис для работы с админ-панелью бота."""
 
 from typing import Optional
+import threading
+import time
+from datetime import datetime
 
 from src.clients.max_api_client import IMaxApiClient
 from src.config.settings import Settings
@@ -326,7 +329,9 @@ class AdminService:
                 traceback.print_exc()
 
     def _confirm_and_send_notification(self, callback_id: str, user_id: int) -> None:
-        """Подтвердить и отправить уведомление получателям.
+        """Подтвердить отправку и запустить асинхронную рассылку.
+        
+        Немедленно отвечает на callback и запускает рассылку в фоновом потоке.
         
         Args:
             callback_id: ID callback события
@@ -355,15 +360,64 @@ class AdminService:
                 recipients = self._user_repository.get_all_user_ids()
                 target_name = "пользователям базы"
             
-            print(f"\n📤 Начало рассылки {target_name} (получателей: {len(recipients)})")
+            # ВАЖНО: Немедленно отвечаем на callback (чтобы избежать timeout)
+            self._api_client.answer_callback(
+                callback_id=callback_id,
+                notification=f"📤 Рассылка начата!\nПолучателей: {len(recipients)}"
+            )
             
-            # Счётчики для статистики
-            sent_count = 0
-            not_activated_ids = []  # Не активировали бота
-            not_found_ids = []      # Несуществующие ID
+            # Сбрасываем состояние сразу
+            self._state_manager.reset_state(user_id)
             
-            # Отправляем уведомление всем получателям
-            for recipient_id in recipients:
+            print(f"\n📤 Запуск асинхронной рассылки {target_name} (получателей: {len(recipients)})")
+            
+            # Запускаем рассылку в отдельном потоке
+            thread = threading.Thread(
+                target=self._send_notifications_async,
+                args=(user_id, notification_text, recipients, target_name),
+                daemon=True
+            )
+            thread.start()
+            
+            print(f"   ✅ Фоновый поток рассылки запущен")
+            
+        except Exception as e:
+            print(f"   ❌ Критическая ошибка подтверждения отправки: {e}")
+            if self._settings.debug:
+                import traceback
+                traceback.print_exc()
+
+    def _send_notifications_async(
+        self,
+        initiator_id: int,
+        notification_text: str,
+        recipients: list[int],
+        target_name: str
+    ) -> None:
+        """Асинхронная рассылка уведомлений в фоновом потоке.
+        
+        Выполняется в отдельном потоке, не блокирует основную работу бота.
+        Отправляет прогресс-уведомления и финальную статистику.
+        
+        Args:
+            initiator_id: ID администратора, инициировавшего рассылку
+            notification_text: Текст уведомления
+            recipients: Список ID получателей
+            target_name: Название типа получателей (для логов)
+        """
+        start_time = time.time()
+        
+        # Счётчики для статистики
+        sent_count = 0
+        not_activated_ids = []
+        not_found_ids = []
+        
+        total_recipients = len(recipients)
+        progress_interval = self._settings.notification_progress_interval
+        
+        try:
+            # Отправляем уведомления с задержками
+            for index, recipient_id in enumerate(recipients, start=1):
                 try:
                     self._api_client.send_message_to_user(
                         user_id=recipient_id,
@@ -372,64 +426,166 @@ class AdminService:
                     )
                     sent_count += 1
                     
-                    if sent_count % 10 == 0:  # Прогресс каждые 10 сообщений
-                        print(f"   📊 Прогресс: {sent_count}/{len(recipients)}")
-                    
                 except Exception as e:
                     error_message = str(e)
                     
                     # Классифицируем ошибку
                     if "dialog.not.found" in error_message or "chat.not.found" in error_message:
-                        # Пользователь не активировал бота
                         not_activated_ids.append(recipient_id)
-                        
                     elif "user.not.found" in error_message:
-                        # Несуществующий пользователь
                         not_found_ids.append(recipient_id)
-                        
                     else:
-                        # Неизвестная ошибка
-                        print(f"   ⚠️ Неизвестная ошибка recipient_id={recipient_id}: {e}")
+                        if self._settings.debug:
+                            print(f"   ⚠️ Неизвестная ошибка recipient_id={recipient_id}: {e}")
+                
+                # Задержка между сообщениями для обхода rate limiting
+                if index < total_recipients:  # Не ждём после последнего
+                    time.sleep(self._settings.notification_delay)
+                
+                # Отправляем прогресс каждые N сообщений
+                if index % progress_interval == 0 or index == total_recipients:
+                    self._send_progress_notification(
+                        initiator_id,
+                        sent_count,
+                        total_recipients,
+                        not_activated_ids,
+                        not_found_ids,
+                        is_final=(index == total_recipients)
+                    )
             
-            # Формируем детальный отчёт
-            report_lines = [
-                f"✅ Рассылка завершена!",
-                f"📊 Доставлено: {sent_count}/{len(recipients)}"
-            ]
+            # Вычисляем затраченное время
+            elapsed_time = time.time() - start_time
+            minutes = int(elapsed_time // 60)
+            seconds = int(elapsed_time % 60)
+            time_str = f"{minutes} мин {seconds} сек" if minutes > 0 else f"{seconds} сек"
             
-            if not_activated_ids:
-                # Показываем только первые 5 ID если их много
-                ids_preview = not_activated_ids[:5]
-                ids_text = ', '.join(map(str, ids_preview))
-                if len(not_activated_ids) > 5:
-                    ids_text += f" ... (+{len(not_activated_ids) - 5})"
-                report_lines.append(f"⚠️ Не активировали бота: {len(not_activated_ids)}")
-            
-            if not_found_ids:
-                ids_preview = not_found_ids[:5]
-                ids_text = ', '.join(map(str, ids_preview))
-                if len(not_found_ids) > 5:
-                    ids_text += f" ... (+{len(not_found_ids) - 5})"
-                report_lines.append(f"❌ Не найдены: {len(not_found_ids)}")
-            
-            notification_report = "\n".join(report_lines)
-            
-            # Отправляем подтверждение инициатору
-            self._api_client.answer_callback(
-                callback_id=callback_id,
-                notification=notification_report
+            # Отправляем финальную статистику
+            self._send_final_statistics(
+                initiator_id,
+                sent_count,
+                total_recipients,
+                not_activated_ids,
+                not_found_ids,
+                time_str
             )
             
-            # Сбрасываем состояние
-            self._state_manager.reset_state(user_id)
-            
-            print(f"   📊 Итого: {sent_count} успешно, {len(not_activated_ids)} не активировали, {len(not_found_ids)} не найдены")
+            print(f"   ✅ Рассылка завершена: {sent_count}/{total_recipients} за {time_str}")
             
         except Exception as e:
-            print(f"   ❌ Критическая ошибка подтверждения отправки: {e}")
+            print(f"   ❌ Критическая ошибка в фоновой рассылке: {e}")
             if self._settings.debug:
                 import traceback
                 traceback.print_exc()
+            
+            # Уведомляем админа об ошибке
+            try:
+                self._api_client.send_message_to_user(
+                    user_id=initiator_id,
+                    text=f"❌ Критическая ошибка рассылки: {e}"
+                )
+            except Exception:
+                pass
+
+    def _send_progress_notification(
+        self,
+        admin_id: int,
+        sent_count: int,
+        total_count: int,
+        not_activated: list[int],
+        not_found: list[int],
+        is_final: bool = False
+    ) -> None:
+        """Отправить прогресс-уведомление администратору.
+        
+        Args:
+            admin_id: ID администратора
+            sent_count: Количество успешно отправленных
+            total_count: Общее количество получателей
+            not_activated: Список ID не активировавших бота
+            not_found: Список ID не найденных пользователей
+            is_final: Финальное уведомление или промежуточное
+        """
+        try:
+            percentage = int((sent_count + len(not_activated) + len(not_found)) / total_count * 100)
+            
+            if is_final:
+                icon = "✅"
+                status = "Завершено"
+            else:
+                icon = "📊"
+                status = "Прогресс"
+            
+            progress_text = (
+                f"{icon} **{status}: {percentage}%**\n"
+                f"✅ Доставлено: {sent_count}/{total_count}\n"
+            )
+            
+            if not_activated:
+                progress_text += f"⚠️ Не активировали: {len(not_activated)}\n"
+            
+            if not_found:
+                progress_text += f"❌ Не найдены: {len(not_found)}\n"
+            
+            self._api_client.send_message_to_user(
+                user_id=admin_id,
+                text=progress_text.strip(),
+                format="markdown"
+            )
+            
+        except Exception as e:
+            if self._settings.debug:
+                print(f"   ⚠️ Ошибка отправки прогресса: {e}")
+
+    def _send_final_statistics(
+        self,
+        admin_id: int,
+        sent_count: int,
+        total_count: int,
+        not_activated: list[int],
+        not_found: list[int],
+        time_str: str
+    ) -> None:
+        """Отправить финальную статистику рассылки.
+        
+        Args:
+            admin_id: ID администратора
+            sent_count: Количество успешно отправленных
+            total_count: Общее количество получателей
+            not_activated: Список ID не активировавших бота
+            not_found: Список ID не найденных пользователей
+            time_str: Строка с затраченным временем
+        """
+        try:
+            final_text = (
+                f"🎉 **Рассылка завершена!**\n\n"
+                f"📊 Доставлено: {sent_count}/{total_count}\n"
+            )
+            
+            if not_activated:
+                ids_preview = not_activated[:5]
+                ids_text = ', '.join(map(str, ids_preview))
+                if len(not_activated) > 5:
+                    ids_text += f" ... (+{len(not_activated) - 5})"
+                final_text += f"⚠️ Не активировали бота: {len(not_activated)}\n"
+            
+            if not_found:
+                ids_preview = not_found[:5]
+                ids_text = ', '.join(map(str, ids_preview))
+                if len(not_found) > 5:
+                    ids_text += f" ... (+{len(not_found) - 5})"
+                final_text += f"❌ Не найдены: {len(not_found)}\n"
+            
+            final_text += f"\n⏱ Время выполнения: {time_str}"
+            
+            self._api_client.send_message_to_user(
+                user_id=admin_id,
+                text=final_text,
+                format="markdown"
+            )
+            
+        except Exception as e:
+            if self._settings.debug:
+                print(f"   ⚠️ Ошибка отправки финальной статистики: {e}")
 
     def _cancel_notification(self, callback_id: str, user_id: int) -> None:
         """Отменить отправку уведомления и вернуться в меню.

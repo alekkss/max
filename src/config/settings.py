@@ -24,7 +24,7 @@ class Settings:
         self.support_chat_id: int = int(self._get_required_env("SUPPORT_CHAT_ID"))
         self.bot_id: int = int(self._get_required_env("BOT_ID"))
         
-        # Администраторы (новое поле)
+        # Администраторы
         self.admin_user_ids: list[int] = self._parse_admin_ids(
             os.getenv("ADMIN_USER_IDS", "")
         )
@@ -42,6 +42,10 @@ class Settings:
         # Задержки между запросами (секунды)
         self.message_delay: float = float(os.getenv("MESSAGE_DELAY", "0.3"))
         self.error_retry_delay: int = int(os.getenv("ERROR_RETRY_DELAY", "5"))
+        
+        # Настройки массовых рассылок (НОВОЕ)
+        self.notification_delay: float = float(os.getenv("NOTIFICATION_DELAY", "0.1"))
+        self.notification_progress_interval: int = int(os.getenv("NOTIFICATION_PROGRESS_INTERVAL", "100"))
     
     @property
     def api_headers(self) -> dict[str, str]:
