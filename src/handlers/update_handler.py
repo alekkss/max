@@ -136,18 +136,19 @@ class UpdateHandler:
         """
         callback = update.get("callback", {})
         callback_id = callback.get("callback_id")
+        payload = callback.get("payload")
         
         # Получаем информацию о пользователе
         user = callback.get("user", {})
         user_id = user.get("user_id")
         
-        if not callback_id or not user_id:
+        if not callback_id or not payload or not user_id:
             if self._settings.debug:
                 print(f"⚠️ Некорректное callback событие: {update}")
             return
         
         # Делегируем обработку админ-сервису
-        self._admin_service.handle_callback(user_id, callback_id)
+        self._admin_service.handle_callback(user_id, callback_id, payload)
 
     def _handle_admin_command(self, user_id: int, name: str) -> None:
         """Обработать команду /admin.

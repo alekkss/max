@@ -122,6 +122,32 @@ class IMaxApiClient(ABC):
         pass
 
     @abstractmethod
+    def answer_callback(
+        self,
+        callback_id: str,
+        text: Optional[str] = None,
+        buttons: Optional[list[list[tuple[str, str]]]] = None,
+        notification: Optional[str] = None,
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Ответить на callback от inline-кнопки.
+        
+        Args:
+            callback_id: ID callback события
+            text: Новый текст сообщения (для обновления)
+            buttons: Новые кнопки (для обновления)
+            notification: Текст одноразового уведомления
+            format: Формат текста ('markdown' или 'html'), optional
+            
+        Returns:
+            Response от API
+            
+        Raises:
+            MaxApiHttpError: При ошибке ответа
+        """
+        pass
+
+    @abstractmethod
     def edit_message(
         self,
         chat_id: int,
@@ -286,6 +312,78 @@ class MaxApiClient(IMaxApiClient):
             raise MaxApiTimeoutError(f"Message send timeout: {e}") from e
         except RequestException as e:
             raise MaxApiError(f"Message send failed: {e}") from e
+    
+    def answer_callback(
+        self,
+        callback_id: str,
+        text: Optional[str] = None,
+        buttons: Optional[list[list[tuple[str, str]]]] = None,
+        notification: Optional[str] = None,
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Ответить на callback от inline-кнопки."""
+        try:
+            payload: dict[str, Any] = {}
+            
+            # Либо обновляем сообщение, либо отправляем уведомление
+            if text is not None or buttons is not None:
+                # Обновляем сообщение
+                message_body: dict[str, Any] = {}
+                
+                if text is not None:
+                    message_body["text"] = text
+                
+                if buttons is not None:
+                    # Формируем клавиатуру
+                    keyboard_buttons = [
+                        [
+                            {
+                                "type": "callback",
+                                "text": button_text,
+                                "payload": callback_data
+                            }
+                            for button_text, callback_data in row
+                        ]
+                        for row in buttons
+                    ]
+                    
+                    message_body["attachments"] = [
+                        {
+                            "type": "inline_keyboard",
+                            "payload": {
+                                "buttons": keyboard_buttons
+                            }
+                        }
+                    ]
+                
+                if format in ["markdown", "html"]:
+                    message_body["format"] = format
+                
+                payload["message"] = message_body
+            
+            elif notification is not None:
+                # Отправляем одноразовое уведомление
+                payload["notification"] = notification
+            
+            response = self._session.post(
+                f"{self._settings.base_url}/answers",
+                params={"callback_id": callback_id},
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code not in [200, 201]:
+                raise MaxApiHttpError(
+                    f"Failed to answer callback: {response.text}",
+                    response.status_code
+                )
+            
+            return response.json()
+            
+        except Timeout as e:
+            raise MaxApiTimeoutError(f"Callback answer timeout: {e}") from e
+        except RequestException as e:
+            raise MaxApiError(f"Callback answer failed: {e}") from e
 
     def edit_message(
         self,

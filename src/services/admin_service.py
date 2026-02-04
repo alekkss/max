@@ -87,14 +87,81 @@ class AdminService:
                 import traceback
                 traceback.print_exc()
 
-    def send_notification_menu(self, user_id: int) -> None:
-        """Отправить меню выбора получателей уведомления.
+    def handle_callback(self, user_id: int, callback_id: str, payload: str) -> None:
+        """Обработать callback-событие от inline-кнопки.
         
         Args:
-            user_id: ID администратора
+            user_id: ID пользователя, нажавшего кнопку
+            callback_id: ID callback события (для ответа)
+            payload: Данные callback (payload кнопки)
+        """
+        # Проверяем права доступа
+        if not self.is_admin(user_id):
+            try:
+                self._api_client.answer_callback(
+                    callback_id=callback_id,
+                    notification=AdminMessage.ACCESS_DENIED
+                )
+            except Exception as e:
+                if self._settings.debug:
+                    print(f"   ⚠️ Ошибка отправки уведомления: {e}")
+            return
+        
+        print(f"\n🔘 Callback от admin_id={user_id}: {payload}")
+        
+        # Маршрутизация по payload
+        if payload == AdminCallback.SEND_NOTIFICATION.value:
+            self._update_to_notification_menu(callback_id)
+        
+        elif payload == AdminCallback.BACK_TO_MAIN.value:
+            self._update_to_main_menu(callback_id)
+        
+        elif payload == AdminCallback.NOTIFICATION_TEST.value:
+            self._send_test_notification_stub(callback_id)
+        
+        elif payload == AdminCallback.NOTIFICATION_ALL.value:
+            self._send_all_notification_stub(callback_id)
+        
+        else:
+            # Неизвестный callback
+            if self._settings.debug:
+                print(f"   ⚠️ Неизвестный callback: {payload}")
+
+    def _update_to_main_menu(self, callback_id: str) -> None:
+        """Обновить сообщение на главное меню.
+        
+        Args:
+            callback_id: ID callback события
         """
         try:
-            # Формируем кнопки меню уведомлений
+            buttons = [
+                [
+                    (AdminButton.SEND_NOTIFICATION, AdminCallback.SEND_NOTIFICATION.value)
+                ]
+            ]
+            
+            self._api_client.answer_callback(
+                callback_id=callback_id,
+                text=AdminMessage.MAIN_MENU_TEXT,
+                buttons=buttons,
+                format="markdown"
+            )
+            
+            print(f"   ✅ Главное меню обновлено")
+            
+        except Exception as e:
+            print(f"   ❌ Ошибка обновления главного меню: {e}")
+            if self._settings.debug:
+                import traceback
+                traceback.print_exc()
+
+    def _update_to_notification_menu(self, callback_id: str) -> None:
+        """Обновить сообщение на меню уведомлений.
+        
+        Args:
+            callback_id: ID callback события
+        """
+        try:
             buttons = [
                 [
                     (AdminButton.TEST, AdminCallback.NOTIFICATION_TEST.value),
@@ -105,79 +172,47 @@ class AdminService:
                 ]
             ]
             
-            self._api_client.send_message_with_keyboard(
+            self._api_client.answer_callback(
+                callback_id=callback_id,
                 text=AdminMessage.NOTIFICATION_MENU_TEXT,
                 buttons=buttons,
-                user_id=user_id,
                 format="markdown"
             )
             
-            print(f"   ✅ Меню уведомлений отправлено admin_id={user_id}")
+            print(f"   ✅ Меню уведомлений обновлено")
             
         except Exception as e:
-            print(f"   ❌ Ошибка отправки меню уведомлений: {e}")
+            print(f"   ❌ Ошибка обновления меню: {e}")
             if self._settings.debug:
                 import traceback
                 traceback.print_exc()
 
-    def handle_callback(self, user_id: int, callback_data: str) -> None:
-        """Обработать callback-событие от inline-кнопки.
-        
-        Args:
-            user_id: ID пользователя, нажавшего кнопку
-            callback_data: Данные callback (payload кнопки)
-        """
-        # Проверяем права доступа
-        if not self.is_admin(user_id):
-            self.send_access_denied(user_id)
-            return
-        
-        print(f"\n🔘 Callback от admin_id={user_id}: {callback_data}")
-        
-        # Маршрутизация по callback_data
-        if callback_data == AdminCallback.SEND_NOTIFICATION.value:
-            self.send_notification_menu(user_id)
-        
-        elif callback_data == AdminCallback.BACK_TO_MAIN.value:
-            self.send_main_menu(user_id)
-        
-        elif callback_data == AdminCallback.NOTIFICATION_TEST.value:
-            self._send_test_notification_stub(user_id)
-        
-        elif callback_data == AdminCallback.NOTIFICATION_ALL.value:
-            self._send_all_notification_stub(user_id)
-        
-        else:
-            # Неизвестный callback
-            if self._settings.debug:
-                print(f"   ⚠️ Неизвестный callback: {callback_data}")
-
-    def _send_test_notification_stub(self, user_id: int) -> None:
+    def _send_test_notification_stub(self, callback_id: str) -> None:
         """Заглушка для отправки тестового уведомления.
         
         Args:
-            user_id: ID администратора
+            callback_id: ID callback события
         """
         try:
-            self._api_client.send_message_to_user(
-                user_id=user_id,
-                text=AdminMessage.TEST_NOTIFICATION_STUB
+            self._api_client.answer_callback(
+                callback_id=callback_id,
+                notification=AdminMessage.TEST_NOTIFICATION_STUB
             )
             print(f"   🧪 Заглушка: тестовое уведомление")
         except Exception as e:
             if self._settings.debug:
                 print(f"   ⚠️ Ошибка отправки заглушки: {e}")
 
-    def _send_all_notification_stub(self, user_id: int) -> None:
+    def _send_all_notification_stub(self, callback_id: str) -> None:
         """Заглушка для рассылки по всей базе.
         
         Args:
-            user_id: ID администратора
+            callback_id: ID callback события
         """
         try:
-            self._api_client.send_message_to_user(
-                user_id=user_id,
-                text=AdminMessage.ALL_NOTIFICATION_STUB
+            self._api_client.answer_callback(
+                callback_id=callback_id,
+                notification=AdminMessage.ALL_NOTIFICATION_STUB
             )
             print(f"   📢 Заглушка: рассылка по базе")
         except Exception as e:
