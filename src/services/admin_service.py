@@ -295,8 +295,12 @@ class AdminService:
                 )
                 return
             
-            # Отправляем уведомление всем администраторам
+            # Счётчики для статистики
             sent_count = 0
+            not_activated_ids = []  # Не активировали бота
+            not_found_ids = []      # Несуществующие ID
+            
+            # Отправляем уведомление всем администраторам
             for admin_id in self._settings.admin_user_ids:
                 try:
                     self._api_client.send_message_to_user(
@@ -306,22 +310,49 @@ class AdminService:
                     )
                     sent_count += 1
                     print(f"   ✉️ Отправлено admin_id={admin_id}")
+                    
                 except Exception as e:
-                    print(f"   ⚠️ Ошибка отправки admin_id={admin_id}: {e}")
+                    error_message = str(e)
+                    
+                    # Классифицируем ошибку
+                    if "dialog.not.found" in error_message or "chat.not.found" in error_message:
+                        # Пользователь не активировал бота
+                        not_activated_ids.append(admin_id)
+                        print(f"   ⚠️ Бот не активирован admin_id={admin_id}")
+                        
+                    elif "user.not.found" in error_message:
+                        # Несуществующий пользователь
+                        not_found_ids.append(admin_id)
+                        print(f"   ❌ Пользователь не найден admin_id={admin_id}")
+                        
+                    else:
+                        # Неизвестная ошибка
+                        print(f"   ⚠️ Неизвестная ошибка admin_id={admin_id}: {e}")
+            
+            # Формируем детальный отчёт
+            report_lines = [f"✅ Доставлено: {sent_count}/{len(self._settings.admin_user_ids)}"]
+            
+            if not_activated_ids:
+                report_lines.append(f"\n⚠️ Не активировали бота ({len(not_activated_ids)}): {', '.join(map(str, not_activated_ids))}")
+            
+            if not_found_ids:
+                report_lines.append(f"\n❌ Не найдены ({len(not_found_ids)}): {', '.join(map(str, not_found_ids))}")
+            
+            notification_report = "\n".join(report_lines)
             
             # Отправляем подтверждение инициатору
             self._api_client.answer_callback(
                 callback_id=callback_id,
-                notification=f"{AdminMessage.NOTIFICATION_SENT} (Доставлено: {sent_count}/{len(self._settings.admin_user_ids)})"
+                notification=notification_report
             )
             
             # Сбрасываем состояние
             self._state_manager.reset_state(user_id)
             
-            print(f"   ✅ Уведомление разослано {sent_count} администраторам")
+            print(f"   📊 Итого: {sent_count} успешно, {len(not_activated_ids)} не активировали, {len(not_found_ids)} не найдены")
             
         except Exception as e:
-            print(f"   ❌ Ошибка подтверждения отправки: {e}")
+            print(f"   ❌ Критическая ошибка подтверждения отправки: {e}")
             if self._settings.debug:
                 import traceback
                 traceback.print_exc()
