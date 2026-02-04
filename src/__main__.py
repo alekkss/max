@@ -62,9 +62,10 @@ def main() -> None:
             message_repository=message_repository
         )
         
-        # Создаем сервис админ-панели (НОВОЕ)
+        # Создаем сервис админ-панели
         admin_service = AdminService(
             api_client=api_client,
+            user_repository=user_repository,  # НОВОЕ: внедряем репозиторий
             settings=settings
         )
         
@@ -73,7 +74,7 @@ def main() -> None:
             user_service=user_service,
             message_service=message_service,
             export_service=export_service,
-            admin_service=admin_service,  # НОВОЕ
+            admin_service=admin_service,
             settings=settings
         )
         

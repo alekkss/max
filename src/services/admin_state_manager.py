@@ -13,6 +13,13 @@ class AdminState(str, Enum):
     CONFIRMING_NOTIFICATION = "confirming_notification"  # Подтверждение отправки
 
 
+class NotificationTarget(str, Enum):
+    """Тип получателей уведомления."""
+    
+    ADMINS = "admins"  # Только администраторы
+    ALL_USERS = "all_users"  # Все пользователи из базы данных
+
+
 @dataclass
 class AdminContext:
     """Контекст состояния администратора.
@@ -23,6 +30,7 @@ class AdminContext:
     
     state: AdminState
     notification_text: Optional[str] = None
+    target_type: Optional[NotificationTarget] = None  # Тип получателей (НОВОЕ)
 
 
 class AdminStateManager:
@@ -30,7 +38,7 @@ class AdminStateManager:
     
     Отвечает за:
     - Отслеживание текущего состояния каждого админа
-    - Сохранение временных данных (текст уведомления)
+    - Сохранение временных данных (текст уведомления, тип получателей)
     - Переходы между состояниями
     
     Использует паттерн Singleton для единого источника состояний.
@@ -63,17 +71,28 @@ class AdminStateManager:
         context = self._states.get(user_id)
         return context.state if context else AdminState.IDLE
     
-    def set_state(self, user_id: int, state: AdminState) -> None:
+    def set_state(
+        self,
+        user_id: int,
+        state: AdminState,
+        target_type: Optional[NotificationTarget] = None
+    ) -> None:
         """Установить состояние администратора.
         
         Args:
             user_id: ID администратора
             state: Новое состояние
+            target_type: Тип получателей уведомления (опционально)
         """
         if user_id not in self._states:
-            self._states[user_id] = AdminContext(state=state)
+            self._states[user_id] = AdminContext(
+                state=state,
+                target_type=target_type
+            )
         else:
             self._states[user_id].state = state
+            if target_type is not None:
+                self._states[user_id].target_type = target_type
     
     def reset_state(self, user_id: int) -> None:
         """Сбросить состояние администратора в IDLE.
@@ -111,6 +130,18 @@ class AdminStateManager:
         """
         context = self._states.get(user_id)
         return context.notification_text if context else None
+    
+    def get_target_type(self, user_id: int) -> Optional[NotificationTarget]:
+        """Получить тип получателей уведомления.
+        
+        Args:
+            user_id: ID администратора
+            
+        Returns:
+            Тип получателей или None
+        """
+        context = self._states.get(user_id)
+        return context.target_type if context else None
     
     def is_waiting_notification_text(self, user_id: int) -> bool:
         """Проверить, ожидает ли админ ввода текста уведомления.

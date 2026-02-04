@@ -65,6 +65,15 @@ class IUserRepository(ABC):
             Обновленный пользователь
         """
         pass
+    
+    @abstractmethod
+    def get_all_user_ids(self) -> list[int]:
+        """Получить список всех user_id из базы данных.
+        
+        Returns:
+            Список ID всех пользователей
+        """
+        pass
 
 
 class SQLiteUserRepository(IUserRepository):
@@ -153,3 +162,10 @@ class SQLiteUserRepository(IUserRepository):
             raise RuntimeError(f"User {user_id} not found after phone update")
         
         return result
+    
+    def get_all_user_ids(self) -> list[int]:
+        """Получить список всех user_id из базы данных."""
+        with self._db.cursor() as cursor:
+            cursor.execute('SELECT user_id FROM users ORDER BY user_id')
+            rows = cursor.fetchall()
+            return [row["user_id"] for row in rows]
