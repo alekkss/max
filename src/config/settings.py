@@ -24,6 +24,11 @@ class Settings:
         self.support_chat_id: int = int(self._get_required_env("SUPPORT_CHAT_ID"))
         self.bot_id: int = int(self._get_required_env("BOT_ID"))
         
+        # Администраторы (новое поле)
+        self.admin_user_ids: list[int] = self._parse_admin_ids(
+            os.getenv("ADMIN_USER_IDS", "")
+        )
+        
         # База данных
         self.database_path: str = os.getenv("DATABASE_PATH", "lavita_bot.db")
         
@@ -62,6 +67,27 @@ class Settings:
         if value is None:
             raise ValueError(f"Обязательная переменная окружения '{key}' не установлена. Проверьте .env файл.")
         return value
+    
+    def _parse_admin_ids(self, value: str) -> list[int]:
+        """Парсинг списка ID администраторов из строки.
+        
+        Args:
+            value: Строка с ID через запятую (например, "123,456,789")
+            
+        Returns:
+            Список ID администраторов
+        """
+        if not value or not value.strip():
+            return []
+        
+        try:
+            # Разбиваем по запятой, убираем пробелы, конвертируем в int
+            return [int(user_id.strip()) for user_id in value.split(",") if user_id.strip()]
+        except ValueError as e:
+            raise ValueError(
+                f"Ошибка парсинга ADMIN_USER_IDS: '{value}'. "
+                f"Ожидается формат: '123,456,789'. Ошибка: {e}"
+            )
 
 
 def get_settings() -> Settings:

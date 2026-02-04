@@ -94,6 +94,34 @@ class IMaxApiClient(ABC):
         pass
 
     @abstractmethod
+    def send_message_with_keyboard(
+        self,
+        text: str,
+        buttons: list[list[tuple[str, str]]],
+        user_id: Optional[int] = None,
+        chat_id: Optional[int] = None,
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Отправить сообщение с inline-клавиатурой.
+        
+        Args:
+            text: Текст сообщения
+            buttons: Список строк кнопок. Каждая строка - список кортежей (текст, callback_data)
+                     Например: [[("Кнопка 1", "callback_1"), ("Кнопка 2", "callback_2")]]
+            user_id: ID пользователя (если отправляем пользователю)
+            chat_id: ID чата (если отправляем в чат)
+            format: Формат текста ('markdown' или 'html'), optional
+            
+        Returns:
+            Response от API с данными отправленного сообщения
+            
+        Raises:
+            ValueError: Если не указан ни user_id, ни chat_id
+            MaxApiHttpError: При ошибке отправки
+        """
+        pass
+
+    @abstractmethod
     def edit_message(
         self,
         chat_id: int,
@@ -184,6 +212,80 @@ class MaxApiClient(IMaxApiClient):
             text=text,
             format=format
         )
+
+    def send_message_with_keyboard(
+        self,
+        text: str,
+        buttons: list[list[tuple[str, str]]],
+        user_id: Optional[int] = None,
+        chat_id: Optional[int] = None,
+        format: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Отправить сообщение с inline-клавиатурой."""
+        # Валидация: должен быть указан либо user_id, либо chat_id
+        if user_id is None and chat_id is None:
+            raise ValueError("Необходимо указать либо user_id, либо chat_id")
+        
+        if user_id is not None and chat_id is not None:
+            raise ValueError("Нельзя указывать одновременно user_id и chat_id")
+        
+        # Формируем параметры запроса
+        params: dict[str, int] = {}
+        if user_id is not None:
+            params["user_id"] = user_id
+        else:
+            params["chat_id"] = chat_id  # type: ignore
+        
+        # Формируем структуру inline_keyboard согласно документации Max.ru API
+        keyboard_buttons = [
+            [
+                {
+                    "type": "callback",
+                    "text": button_text,
+                    "payload": callback_data
+                }
+                for button_text, callback_data in row
+            ]
+            for row in buttons
+        ]
+        
+        # Формируем payload с attachments
+        payload: dict[str, Any] = {
+            "text": text,
+            "attachments": [
+                {
+                    "type": "inline_keyboard",
+                    "payload": {
+                        "buttons": keyboard_buttons
+                    }
+                }
+            ]
+        }
+        
+        # Добавляем формат, если указан
+        if format in ["markdown", "html"]:
+            payload["format"] = format
+        
+        try:
+            response = self._session.post(
+                f"{self._settings.base_url}/messages",
+                params=params,
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code not in [200, 201]:
+                raise MaxApiHttpError(
+                    f"Failed to send message with keyboard: {response.text}",
+                    response.status_code
+                )
+            
+            return response.json()
+            
+        except Timeout as e:
+            raise MaxApiTimeoutError(f"Message send timeout: {e}") from e
+        except RequestException as e:
+            raise MaxApiError(f"Message send failed: {e}") from e
 
     def edit_message(
         self,

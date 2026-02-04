@@ -5,6 +5,7 @@ from typing import Any, Optional
 from src.services.user_service import UserService
 from src.services.message_service import MessageService
 from src.services.export_service import ExportService
+from src.services.admin_service import AdminService
 from src.config.settings import Settings
 from src.models.update import UpdateType, LinkType
 
@@ -23,6 +24,7 @@ class UpdateHandler:
         user_service: UserService,
         message_service: MessageService,
         export_service: ExportService,
+        admin_service: AdminService,
         settings: Settings
     ) -> None:
         """Инициализация обработчика.
@@ -31,11 +33,13 @@ class UpdateHandler:
             user_service: Сервис для работы с пользователями
             message_service: Сервис для работы с сообщениями
             export_service: Сервис для экспорта данных
+            admin_service: Сервис для работы с админ-панелью
             settings: Конфигурация приложения
         """
         self._user_service = user_service
         self._message_service = message_service
         self._export_service = export_service
+        self._admin_service = admin_service
         self._settings = settings
 
     def handle_update(self, update: dict[str, Any]) -> None:
@@ -50,6 +54,8 @@ class UpdateHandler:
             self._handle_message_created(update)
         elif update_type == UpdateType.BOT_STARTED.value:
             self._handle_bot_started(update)
+        elif update_type == "message_callback":
+            self._handle_message_callback(update)
         else:
             if self._settings.debug:
                 print(f"⚠️ Неизвестный тип события: {update_type}")
@@ -91,17 +97,22 @@ class UpdateHandler:
         if is_from_support_chat:
             return
         
-        # СЦЕНАРИЙ 3: Команда /start или кнопка "Начать" от клиента
+        # СЦЕНАРИЙ 3: Команда /admin от клиента (НОВОЕ)
+        if is_private_to_bot and text.strip().lower() == "/admin":
+            self._handle_admin_command(user_id, name)
+            return
+        
+        # СЦЕНАРИЙ 4: Команда /start или кнопка "Начать" от клиента
         if is_private_to_bot and text.strip().lower() in ["/start", "/hello", "начать", "start"]:
             self._handle_start_command(user_id, name)
             return
         
-        # СЦЕНАРИЙ 3.5: Игнорируем автоматические приветственные сообщения
+        # СЦЕНАРИЙ 5: Игнорируем автоматические приветственные сообщения
         if is_private_to_bot and text.startswith("Добро пожаловать в LaVita yarn!"):
             print(f"\n⚠️ Автоматическое приветствие от {name} проигнорировано")
             return
         
-        # СЦЕНАРИЙ 4: Обычное сообщение от клиента
+        # СЦЕНАРИЙ 6: Обычное сообщение от клиента
         if is_private_to_bot and not is_bot:
             self._handle_user_message(user_id, name, text, message_id)
             return
@@ -116,6 +127,46 @@ class UpdateHandler:
         
         # Делегируем обработку сервису
         self._user_service.handle_bot_started(user_id, name)
+
+    def _handle_message_callback(self, update: dict[str, Any]) -> None:
+        """Обработать событие нажатия на inline-кнопку.
+        
+        Args:
+            update: Событие с типом message_callback
+        """
+        callback = update.get("callback", {})
+        callback_id = callback.get("callback_id")
+        
+        # Получаем информацию о пользователе
+        user = callback.get("user", {})
+        user_id = user.get("user_id")
+        
+        if not callback_id or not user_id:
+            if self._settings.debug:
+                print(f"⚠️ Некорректное callback событие: {update}")
+            return
+        
+        # Делегируем обработку админ-сервису
+        self._admin_service.handle_callback(user_id, callback_id)
+
+    def _handle_admin_command(self, user_id: int, name: str) -> None:
+        """Обработать команду /admin.
+        
+        Args:
+            user_id: ID пользователя
+            name: Имя пользователя
+        """
+        print(f"\n🔧 /admin от {name} (ID: {user_id})")
+        
+        # Проверяем права доступа
+        if not self._admin_service.is_admin(user_id):
+            print(f"   ❌ Доступ запрещен")
+            self._admin_service.send_access_denied(user_id)
+            return
+        
+        # Отправляем главное меню админ-панели
+        print(f"   ✅ Доступ разрешен")
+        self._admin_service.send_main_menu(user_id)
 
     def _handle_start_command(self, user_id: int, name: str) -> None:
         """Обработать команду /start."""
