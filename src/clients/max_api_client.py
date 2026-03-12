@@ -12,6 +12,7 @@ from urllib3.util.retry import Retry
 from pathlib import Path
 
 from src.config.settings import Settings
+from src.models.update import UpdateType
 
 
 class MaxApiError(Exception):
@@ -190,6 +191,12 @@ class MaxApiClient(IMaxApiClient):
     # Задержки между попытками (секунды): попытка 1 → 2с, попытка 2 → 4с
     _RETRY_BACKOFF_FACTOR: int = 2
 
+    # Типы событий, на которые подписывается бот.
+    # Формируется из enum UpdateType — единый источник истины.
+    _SUBSCRIPTION_TYPES: str = ",".join(
+        update_type.value for update_type in UpdateType
+    )
+
     def __init__(self, settings: Settings) -> None:
         """Инициализация клиента.
 
@@ -345,8 +352,16 @@ class MaxApiClient(IMaxApiClient):
         raise MaxApiError("Исчерпаны все попытки выполнения запроса")
 
     def get_updates(self, marker: Optional[str] = None, timeout: int = 30) -> dict[str, Any]:
-        """Получить обновления через long polling."""
-        params: dict[str, Any] = {"timeout": timeout}
+        """Получить обновления через long polling.
+
+        Подписывается на все типы событий из enum UpdateType:
+        bot_started, message_created, message_callback.
+        Без параметра types API не возвращает события.
+        """
+        params: dict[str, Any] = {
+            "timeout": timeout,
+            "types": self._SUBSCRIPTION_TYPES,
+        }
         if marker:
             params["marker"] = marker
 
