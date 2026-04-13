@@ -10,6 +10,11 @@ from src.config.settings import Settings
 from src.models.update import UpdateType, LinkType
 
 
+# Типы вложений, которые являются медиаконтентом (фото, видео, файлы).
+# Используется для фильтрации служебных вложений (inline_keyboard и т.д.)
+_MEDIA_ATTACHMENT_TYPES: set[str] = {"image", "video", "audio", "file"}
+
+
 class UpdateHandler:
     """Обработчик входящих событий от API.
     
@@ -68,6 +73,12 @@ class UpdateHandler:
         text = body.get("text", "")
         message_id = body.get("mid")  # Извлекаем message_id для reply
         
+        # Извлекаем вложения из body сообщения (фото, видео, файлы и т.д.)
+        raw_attachments = body.get("attachments", [])
+        
+        # Фильтруем только медиа-вложения, исключая служебные (inline_keyboard и т.д.)
+        media_attachments = self._extract_media_attachments(raw_attachments)
+        
         sender = message.get("sender", {})
         user_id = sender.get("user_id")
         name = sender.get("name") or sender.get("first_name", "Пользователь")
@@ -97,17 +108,22 @@ class UpdateHandler:
         if is_from_support_chat:
             return
         
-        # СЦЕНАРИЙ 2.5: Текст от админа в режиме создания уведомления (НОВОЕ)
+        # СЦЕНАРИЙ 2.5: Сообщение от админа в режиме создания уведомления
         if is_private_to_bot and not is_bot:
             # Проверяем, является ли пользователь админом
             if self._admin_service.is_admin(user_id):
                 # Проверяем, ожидает ли админ ввода текста уведомления
                 if self._admin_service.is_waiting_notification_text(user_id):
                     print(f"\n📝 Текст уведомления от admin_id={user_id}")
-                    self._admin_service.handle_notification_text(user_id, text)
+                    # Передаём текст И медиа-вложения (фото, видео и т.д.)
+                    self._admin_service.handle_notification_text(
+                        user_id,
+                        text,
+                        attachments=media_attachments if media_attachments else None
+                    )
                     return
         
-        # СЦЕНАРИЙ 3: Команда /admin от клиента (НОВОЕ)
+        # СЦЕНАРИЙ 3: Команда /admin от клиента
         if is_private_to_bot and text.strip().lower() == "/admin":
             self._handle_admin_command(user_id, name)
             return
@@ -126,6 +142,53 @@ class UpdateHandler:
         if is_private_to_bot and not is_bot:
             self._handle_user_message(user_id, name, text, message_id)
             return
+
+    def _extract_media_attachments(
+        self,
+        raw_attachments: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Извлечь медиа-вложения из списка вложений сообщения.
+        
+        Фильтрует служебные вложения (inline_keyboard, share и т.д.),
+        оставляя только медиаконтент (image, video, audio, file).
+        Для каждого вложения формирует объект в формате, пригодном
+        для отправки через POST /messages (type + payload с token).
+        
+        Args:
+            raw_attachments: Сырой список вложений из body сообщения API
+            
+        Returns:
+            Список медиа-вложений в формате для отправки через API.
+            Пустой список, если медиа-вложений нет.
+        """
+        media_attachments: list[dict[str, Any]] = []
+        
+        for attachment in raw_attachments:
+            attachment_type = attachment.get("type", "")
+            
+            # Пропускаем не-медиа вложения (inline_keyboard, share и т.д.)
+            if attachment_type not in _MEDIA_ATTACHMENT_TYPES:
+                continue
+            
+            payload = attachment.get("payload", {})
+            
+            # Для отправки через API нужен token в payload.
+            # При получении сообщения API возвращает payload с token и другими полями
+            # (url, width, height и т.д.). Для отправки достаточно token.
+            token = payload.get("token")
+            
+            if token:
+                # Формируем вложение в формате для POST /messages
+                media_attachments.append({
+                    "type": attachment_type,
+                    "payload": {
+                        "token": token
+                    }
+                })
+            elif self._settings.debug:
+                print(f"   ⚠️ Вложение типа '{attachment_type}' без token, пропущено")
+        
+        return media_attachments
 
     def _handle_bot_started(self, update: dict[str, Any]) -> None:
         """Обработать событие запуска бота пользователем."""

@@ -59,7 +59,8 @@ class IMaxApiClient(ABC):
         user_id: int,
         text: str,
         format: Optional[str] = None,
-        reply_to: Optional[str] = None
+        reply_to: Optional[str] = None,
+        attachments: Optional[list[dict[str, Any]]] = None
     ) -> dict[str, Any]:
         """Отправить сообщение пользователю.
 
@@ -68,6 +69,7 @@ class IMaxApiClient(ABC):
             text: Текст сообщения
             format: Формат текста ('markdown' или 'html'), optional
             reply_to: ID сообщения для reply-ответа, optional
+            attachments: Вложения (фото, видео, файлы и т.д.), optional
 
         Returns:
             Response от API с данными отправленного сообщения
@@ -82,7 +84,8 @@ class IMaxApiClient(ABC):
         self,
         chat_id: int,
         text: str,
-        format: Optional[str] = None
+        format: Optional[str] = None,
+        attachments: Optional[list[dict[str, Any]]] = None
     ) -> dict[str, Any]:
         """Отправить сообщение в групповой чат.
 
@@ -90,6 +93,7 @@ class IMaxApiClient(ABC):
             chat_id: ID чата
             text: Текст сообщения
             format: Формат текста ('markdown' или 'html'), optional
+            attachments: Вложения (фото, видео, файлы и т.д.), optional
 
         Returns:
             Response от API с данными отправленного сообщения
@@ -377,7 +381,8 @@ class MaxApiClient(IMaxApiClient):
         user_id: int,
         text: str,
         format: Optional[str] = None,
-        reply_to: Optional[str] = None
+        reply_to: Optional[str] = None,
+        attachments: Optional[list[dict[str, Any]]] = None
     ) -> dict[str, Any]:
         """Отправить сообщение пользователю."""
         return self._send_message(
@@ -385,19 +390,22 @@ class MaxApiClient(IMaxApiClient):
             text=text,
             format=format,
             reply_to=reply_to,
+            attachments=attachments,
         )
 
     def send_message_to_chat(
         self,
         chat_id: int,
         text: str,
-        format: Optional[str] = None
+        format: Optional[str] = None,
+        attachments: Optional[list[dict[str, Any]]] = None
     ) -> dict[str, Any]:
         """Отправить сообщение в групповой чат."""
         return self._send_message(
             params={"chat_id": chat_id},
             text=text,
             format=format,
+            attachments=attachments,
         )
 
     def send_message_with_keyboard(
@@ -665,15 +673,23 @@ class MaxApiClient(IMaxApiClient):
         params: dict[str, int],
         text: str,
         format: Optional[str] = None,
-        reply_to: Optional[str] = None
+        reply_to: Optional[str] = None,
+        attachments: Optional[list[dict[str, Any]]] = None
     ) -> dict[str, Any]:
         """Внутренний метод для отправки сообщений.
+
+        Поддерживает отправку текста с вложениями (фото, видео, файлы).
+        Вложения передаются как есть — это объекты из API Max.ru,
+        содержащие type и payload с token.
 
         Args:
             params: Параметры запроса (user_id или chat_id)
             text: Текст сообщения
             format: Формат текста ('markdown' или 'html'), optional
             reply_to: ID сообщения для reply-ответа, optional
+            attachments: Список вложений в формате Max.ru API, optional.
+                         Каждый элемент — словарь с ключами 'type' и 'payload'.
+                         Например: [{"type": "image", "payload": {"token": "abc123"}}]
 
         Returns:
             Response от API
@@ -693,6 +709,12 @@ class MaxApiClient(IMaxApiClient):
                 "type": "reply",
                 "mid": reply_to,
             }
+
+        # Добавляем вложения, если переданы.
+        # Вложения приходят из API в готовом формате (type + payload с token),
+        # поэтому передаём их напрямую без преобразования.
+        if attachments:
+            payload["attachments"] = attachments
 
         return self._make_request(
             method="POST",

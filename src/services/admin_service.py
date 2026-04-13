@@ -1,6 +1,6 @@
 """Сервис для работы с админ-панелью бота."""
 
-from typing import Optional
+from typing import Optional, Any
 import threading
 import time
 from datetime import datetime
@@ -146,23 +146,38 @@ class AdminService:
             if self._settings.debug:
                 print(f"   ⚠️ Неизвестный callback: {payload}")
 
-    def handle_notification_text(self, user_id: int, text: str) -> None:
-        """Обработать текст уведомления от администратора.
+    def handle_notification_text(
+        self,
+        user_id: int,
+        text: str,
+        attachments: Optional[list[dict[str, Any]]] = None
+    ) -> None:
+        """Обработать текст и вложения уведомления от администратора.
         
-        Вызывается из UpdateHandler когда админ отправляет текстовое сообщение
+        Вызывается из UpdateHandler когда админ отправляет сообщение
         и находится в состоянии WAITING_NOTIFICATION_TEXT.
+        Уведомление считается валидным, если содержит текст ИЛИ вложения.
         
         Args:
             user_id: ID администратора
-            text: Текст уведомления
+            text: Текст уведомления (может быть пустой строкой при отправке только фото)
+            attachments: Вложения уведомления (фото, видео и т.д.), optional
         """
-        print(f"\n📝 Получен текст уведомления от admin_id={user_id}")
+        # Проверяем, что есть хотя бы текст или вложения
+        if not text and not attachments:
+            print(f"   ⚠️ Пустое уведомление от admin_id={user_id}, игнорируем")
+            return
         
-        # Сохраняем текст и переводим в состояние подтверждения
-        self._state_manager.save_notification_text(user_id, text)
+        has_attachments = bool(attachments)
+        attachment_types = ", ".join(a.get("type", "?") for a in attachments) if attachments else "нет"
+        text_preview = (text[:50] + "...") if len(text) > 50 else (text or "(без текста)")
+        print(f"\n📝 Уведомление от admin_id={user_id}: текст='{text_preview}', вложения: {attachment_types}")
+        
+        # Сохраняем текст и вложения, переводим в состояние подтверждения
+        self._state_manager.save_notification_text(user_id, text, attachments)
         
         # Отправляем предпросмотр с кнопками подтверждения
-        self._send_notification_preview(user_id, text)
+        self._send_notification_preview(user_id, text, attachments)
 
     def _update_to_main_menu(self, callback_id: str) -> None:
         """Обновить сообщение на главное меню.
@@ -277,12 +292,18 @@ class AdminService:
                 import traceback
                 traceback.print_exc()
 
-    def _send_notification_preview(self, user_id: int, text: str) -> None:
+    def _send_notification_preview(
+        self,
+        user_id: int,
+        text: str,
+        attachments: Optional[list[dict[str, Any]]] = None
+    ) -> None:
         """Отправить предпросмотр уведомления с кнопками подтверждения.
         
         Args:
             user_id: ID администратора
-            text: Текст уведомления для предпросмотра
+            text: Текст уведомления для предпросмотра (может быть пустым)
+            attachments: Вложения уведомления (фото, видео и т.д.), optional
         """
         try:
             # Получаем тип получателей из состояния
@@ -296,12 +317,46 @@ class AdminService:
                 recipients_count = len(self._user_repository.get_all_user_ids())
                 recipients_info = f"🎯 **Получатели:** {recipients_count} пользователь(ей)"
             
+            # Формируем информацию о вложениях для предпросмотра
+            attachments_info = ""
+            if attachments:
+                # Подсчитываем типы вложений для отображения
+                type_counts: dict[str, int] = {}
+                for attachment in attachments:
+                    a_type = attachment.get("type", "unknown")
+                    type_counts[a_type] = type_counts.get(a_type, 0) + 1
+                
+                # Маппинг типов на читаемые названия с иконками
+                type_labels: dict[str, str] = {
+                    "image": "🖼 фото",
+                    "video": "🎬 видео",
+                    "file": "📎 файл",
+                    "audio": "🎵 аудио",
+                }
+                
+                parts = []
+                for a_type, count in type_counts.items():
+                    label = type_labels.get(a_type, f"📦 {a_type}")
+                    if count > 1:
+                        parts.append(f"{label} ({count})")
+                    else:
+                        parts.append(label)
+                
+                attachments_info = f"\n📎 **Вложения:** {', '.join(parts)}"
+            
             # Формируем текст предпросмотра
+            # Если текст пустой (только фото), показываем это явно
+            if text:
+                content_preview = text
+            else:
+                content_preview = "_(без текста, только вложения)_"
+            
             preview_text = (
                 f"👁 **Предпросмотр уведомления:**\n\n"
-                f"{text}\n\n"
+                f"{content_preview}\n\n"
                 f"───────────────────\n"
-                f"{recipients_info}\n\n"
+                f"{recipients_info}"
+                f"{attachments_info}\n\n"
                 f"❓ Отправить это уведомление?"
             )
             
@@ -320,7 +375,8 @@ class AdminService:
                 format="markdown"
             )
             
-            print(f"   ✅ Предпросмотр отправлен admin_id={user_id} (получателей: {recipients_count})")
+            attachment_log = f", вложений: {len(attachments)}" if attachments else ""
+            print(f"   ✅ Предпросмотр отправлен admin_id={user_id} (получателей: {recipients_count}{attachment_log})")
             
         except Exception as e:
             print(f"   ❌ Ошибка отправки предпросмотра: {e}")
@@ -331,6 +387,7 @@ class AdminService:
     def _confirm_and_send_notification(self, callback_id: str, user_id: int) -> None:
         """Подтвердить отправку и запустить асинхронную рассылку.
         
+        Уведомление считается валидным, если содержит текст ИЛИ вложения.
         Немедленно отвечает на callback и запускает рассылку в фоновом потоке.
         
         Args:
@@ -338,14 +395,19 @@ class AdminService:
             user_id: ID администратора, подтвердившего отправку
         """
         try:
-            # Получаем сохранённый текст уведомления
+            # Получаем сохранённый текст и вложения уведомления
             notification_text = self._state_manager.get_notification_text(user_id)
+            notification_attachments = self._state_manager.get_notification_attachments(user_id)
             
-            if not notification_text:
-                print(f"   ⚠️ Текст уведомления не найден для admin_id={user_id}")
+            # Уведомление валидно, если есть текст ИЛИ вложения
+            has_text = notification_text is not None and notification_text != ""
+            has_attachments = bool(notification_attachments)
+            
+            if not has_text and not has_attachments:
+                print(f"   ⚠️ Текст и вложения уведомления не найдены для admin_id={user_id}")
                 self._api_client.answer_callback(
                     callback_id=callback_id,
-                    notification="❌ Ошибка: текст уведомления не найден"
+                    notification="❌ Ошибка: уведомление пустое (нет текста и вложений)"
                 )
                 return
             
@@ -369,12 +431,17 @@ class AdminService:
             # Сбрасываем состояние сразу
             self._state_manager.reset_state(user_id)
             
-            print(f"\n📤 Запуск асинхронной рассылки {target_name} (получателей: {len(recipients)})")
+            # Если текст None (не должно быть, но на всякий случай), ставим пустую строку
+            safe_text = notification_text if notification_text else ""
+            
+            attachment_log = f", вложений: {len(notification_attachments)}" if notification_attachments else ""
+            text_log = f"текст: {len(safe_text)} символов" if safe_text else "без текста"
+            print(f"\n📤 Запуск асинхронной рассылки {target_name} (получателей: {len(recipients)}, {text_log}{attachment_log})")
             
             # Запускаем рассылку в отдельном потоке
             thread = threading.Thread(
                 target=self._send_notifications_async,
-                args=(user_id, notification_text, recipients, target_name),
+                args=(user_id, safe_text, recipients, target_name, notification_attachments),
                 daemon=True
             )
             thread.start()
@@ -392,18 +459,21 @@ class AdminService:
         initiator_id: int,
         notification_text: str,
         recipients: list[int],
-        target_name: str
+        target_name: str,
+        notification_attachments: Optional[list[dict[str, Any]]] = None
     ) -> None:
         """Асинхронная рассылка уведомлений в фоновом потоке.
         
         Выполняется в отдельном потоке, не блокирует основную работу бота.
         Отправляет прогресс-уведомления и финальную статистику.
+        Поддерживает отправку только текста, только вложений или текста с вложениями.
         
         Args:
             initiator_id: ID администратора, инициировавшего рассылку
-            notification_text: Текст уведомления
+            notification_text: Текст уведомления (может быть пустой строкой)
             recipients: Список ID получателей
             target_name: Название типа получателей (для логов)
+            notification_attachments: Вложения уведомления (фото, видео и т.д.), optional
         """
         start_time = time.time()
         
@@ -422,7 +492,8 @@ class AdminService:
                     self._api_client.send_message_to_user(
                         user_id=recipient_id,
                         text=notification_text,
-                        format="markdown"
+                        format="markdown",
+                        attachments=notification_attachments
                     )
                     sent_count += 1
                     

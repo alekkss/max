@@ -1,8 +1,8 @@
 """Менеджер состояний для админ-панели."""
 
-from typing import Optional
+from typing import Optional, Any
 from enum import Enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class AdminState(str, Enum):
@@ -25,12 +25,13 @@ class AdminContext:
     """Контекст состояния администратора.
     
     Хранит текущее состояние и временные данные
-    (например, текст уведомления для подтверждения).
+    (например, текст уведомления и вложения для подтверждения).
     """
     
     state: AdminState
     notification_text: Optional[str] = None
-    target_type: Optional[NotificationTarget] = None  # Тип получателей (НОВОЕ)
+    notification_attachments: Optional[list[dict[str, Any]]] = field(default=None)
+    target_type: Optional[NotificationTarget] = None
 
 
 class AdminStateManager:
@@ -38,7 +39,7 @@ class AdminStateManager:
     
     Отвечает за:
     - Отслеживание текущего состояния каждого админа
-    - Сохранение временных данных (текст уведомления, тип получателей)
+    - Сохранение временных данных (текст уведомления, вложения, тип получателей)
     - Переходы между состояниями
     
     Использует паттерн Singleton для единого источника состояний.
@@ -103,20 +104,28 @@ class AdminStateManager:
         if user_id in self._states:
             del self._states[user_id]
     
-    def save_notification_text(self, user_id: int, text: str) -> None:
-        """Сохранить текст уведомления для подтверждения.
+    def save_notification_text(
+        self,
+        user_id: int,
+        text: str,
+        attachments: Optional[list[dict[str, Any]]] = None
+    ) -> None:
+        """Сохранить текст и вложения уведомления для подтверждения.
         
         Args:
             user_id: ID администратора
             text: Текст уведомления
+            attachments: Вложения уведомления (фото, видео, файлы и т.д.)
         """
         if user_id not in self._states:
             self._states[user_id] = AdminContext(
                 state=AdminState.CONFIRMING_NOTIFICATION,
-                notification_text=text
+                notification_text=text,
+                notification_attachments=attachments
             )
         else:
             self._states[user_id].notification_text = text
+            self._states[user_id].notification_attachments = attachments
             self._states[user_id].state = AdminState.CONFIRMING_NOTIFICATION
     
     def get_notification_text(self, user_id: int) -> Optional[str]:
@@ -130,6 +139,18 @@ class AdminStateManager:
         """
         context = self._states.get(user_id)
         return context.notification_text if context else None
+    
+    def get_notification_attachments(self, user_id: int) -> Optional[list[dict[str, Any]]]:
+        """Получить сохранённые вложения уведомления.
+        
+        Args:
+            user_id: ID администратора
+            
+        Returns:
+            Список вложений или None, если вложений нет
+        """
+        context = self._states.get(user_id)
+        return context.notification_attachments if context else None
     
     def get_target_type(self, user_id: int) -> Optional[NotificationTarget]:
         """Получить тип получателей уведомления.
